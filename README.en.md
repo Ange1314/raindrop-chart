@@ -90,6 +90,10 @@ once in the connector page.
 
 **You only do this once.** After that Buddy starts the connector by itself, every time.
 
+> The filename says Buddy, but it also picks up **Cursor / Claude Desktop** — and only
+> touches the ones already installed on this machine. It writes down what it configured
+> into `data/注册结果.txt`.
+
 ### Don't feel like clicking? Let the AI install it
 
 Hand **`AGENTS.md`** to Buddy and say "install it following this".

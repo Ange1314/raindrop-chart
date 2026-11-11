@@ -108,11 +108,19 @@ wscript "连接Buddy.vbs"
 python app/register_mcp.py
 ```
 
-Exit code `0` = done. It:
-- merges exactly one entry (`raindrop-workflow`) into `~/.workbuddy/mcp.json`
-- leaves every other server untouched
-- writes a timestamped backup next to it (`mcp.json.bak-*`)
+Exit code `0` = at least one client configured. Exit `1` = none found (it then prints a
+ready-to-paste JSON snippet and tells you which paths it looked at).
+
+It detects the clients actually installed on this machine and writes into **only those**:
+WorkBuddy (`~/.workbuddy/mcp.json`), Cursor (`~/.cursor/mcp.json`), Claude Desktop
+(`%APPDATA%\Claude\…` on Windows, `~/Library/Application Support/Claude/…` on macOS).
+
+For each one it:
+- merges exactly one entry (`raindrop-workflow`) and leaves every other server untouched
+- writes a timestamped backup first (`<config>.bak-*`)
+- parses before and after writing; on any failure the file is left **unchanged**
 - computes the absolute path itself — **you never supply a path**
+- **never creates a config for a client that isn't installed**
 
 Expected output ends with three next steps for the human.
 
@@ -157,6 +165,7 @@ Do not claim the tools are available before the client has been restarted and tr
 | register exit code `1` with "解析失败" | their `mcp.json` is malformed | **do not fix it**; report the file path and the error |
 | register says "没找到 WorkBuddy 的配置目录" | WorkBuddy not installed | install is complete anyway; MCP is optional |
 | tools missing after restart | client not restarted, or entry not trusted | restart again, then Trust in the connector page |
+| register exit `1` | none of WorkBuddy / Cursor / Claude Desktop found | fine — paste the printed snippet into whatever client the human uses, or skip MCP entirely |
 
 ---
 

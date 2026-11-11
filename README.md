@@ -83,6 +83,9 @@ chmod +x start.sh && ./start.sh
 
 **只需要做这一次**，之后 Buddy 每次启动都会自己连上，不用再管。
 
+> 文件名写的是 Buddy，但它会顺带识别 **Cursor / Claude Desktop**——
+> 只改这台机器上**已经装了**的那几个，没装的一个都不碰。连了哪些，结果写在 `data/注册结果.txt`。
+
 ### 懒得自己点？让 AI 装
 
 把这个仓库里的 **`AGENTS.md`** 丢给 Buddy，说一句「按这个装」。

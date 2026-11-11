@@ -231,8 +231,18 @@ After that **you never click it again**: WorkBuddy starts the server itself from
 (`app/live_server.py --mcp`). It works even if the web page is closed — only "jump the chart to
 a level" requires the page to be open.
 
-It merges exactly one entry into `~/.workbuddy/mcp.json` and leaves every other server alone.
-It backs the file up first as `mcp.json.bak-<timestamp>`; restore that to undo.
+It checks which clients are installed and writes into **only those** — it never creates a
+config for something that isn't there:
+
+| Client | Config file |
+|---|---|
+| WorkBuddy | `~/.workbuddy/mcp.json` |
+| Cursor | `~/.cursor/mcp.json` |
+| Claude Desktop | Windows `%APPDATA%\Claude\claude_desktop_config.json`; macOS `~/Library/Application Support/Claude/claude_desktop_config.json` |
+
+Each file gets exactly one merged entry (`raindrop-workflow`), every other server untouched.
+It backs the file up first (`<config>.bak-<timestamp>`) and leaves it completely unchanged if
+parsing fails. What got configured and what got skipped is written to `data/注册结果.txt`.
 
 Add to `~/.workbuddy/mcp.json` (adjust the path):
 
