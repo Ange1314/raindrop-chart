@@ -97,9 +97,17 @@ once in the connector page.
 > touches the ones already installed on this machine. It writes down what it configured
 > into `data/注册结果.txt`.
 
-### Don't feel like clicking? Let the AI install it
+### Don't feel like clicking? Paste this into your AI
 
-Hand **`AGENTS.md`** to Buddy and say "install it following this".
+Hand your AI assistant this, verbatim:
+
+```text
+Install https://github.com/Ange1314/raindrop-chart on this machine by following the AGENTS.md
+at the repo root, exactly: clone it first (fall back to the tag zip, then the ghfast.top mirror),
+then do its four steps — check Python, start the server, register the MCP entry, and verify the
+handshake for real. Never write into app/, never touch data/, never upload anything, never install
+dependencies. If a step fails, stop and tell me — don't improvise.
+```
 
 It checks Python, starts the server, writes the connector config, then verifies the
 handshake itself and tells you to restart. That file also pins down what it must not do:

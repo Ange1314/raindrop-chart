@@ -46,6 +46,38 @@ docs/                screenshots + detailed manual
 
 ---
 
+## Before Step 0 · get the files onto this machine
+
+If the folder is already on disk (they unzipped a download, or you already cloned it), skip this
+and go straight to Step 0.
+
+Otherwise fetch it. Any location is fine — spaces and non-ASCII in the path are fine, the program
+works out its own directory.
+
+```bash
+git clone https://github.com/Ange1314/raindrop-chart.git
+```
+
+No git, or the clone hangs? `github.com` is intermittently unreachable from mainland China —
+`api.github.com` can answer while `github.com` does not. Try the tag archive instead:
+
+```bash
+curl -L -o rd.zip https://github.com/Ange1314/raindrop-chart/archive/refs/tags/v2.7.0.zip
+unzip rd.zip          # yields raindrop-chart-2.7.0/
+```
+
+If that host also fails, use a mirror — this one is known to work from there:
+
+```bash
+curl -L -o rd.zip https://ghfast.top/https://github.com/Ange1314/raindrop-chart/archive/refs/tags/v2.7.0.zip
+```
+
+Confirm you got the whole thing: the folder must contain `双击启动雨滴图.vbs`, `app/`, and this
+`AGENTS.md`. If `app/live_server.py` is missing, the download was truncated — stop and tell the
+human; do not try to reconstruct the file.
+
+---
+
 ## Step 0 · Environment check
 
 Run and record the results:
@@ -189,6 +221,7 @@ view by design. Do not try to work around it, and do not report them as "missing
 
 AI 会做四件事，全部在本机完成，不上传任何东西：
 
+0. 先把代码拉到本机（`git clone`，拉不动就下 zip，再不行走镜像）
 1. 检查有没有 Python 3.8+（没有就停下来让你装，不会替你装）
 2. 启动本地服务（Windows 用 `双击启动雨滴图.vbs` 的等价命令）
 3. 跑一次 `app/register_mcp.py`，往 `~/.workbuddy/mcp.json` 合并一条配置（写前自动备份）
