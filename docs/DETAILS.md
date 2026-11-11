@@ -170,6 +170,7 @@ raindrop-chart/
 ├── 双击启动雨滴图.vbs       ← double-click this (Windows; the only entry, no window)
 ├── start.sh           ← macOS / Linux
 ├── 连接Buddy.vbs        ← double-click this too if you want AI to read the data
+├── icon.ico           ← desktop icon (multi-size, transparent)
 │
 ├── app/               [the software] replace this whole folder to upgrade
 │   ├── live_server.py     Local server + parsing + HTTP API

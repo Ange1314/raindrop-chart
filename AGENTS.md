@@ -25,6 +25,10 @@ same structure. Nothing leaves the machine: the server binds `127.0.0.1` only.
 5. **Ask before installing anything** (`pip`, system packages). Nothing is needed:
    the program uses the Python standard library only.
 6. Do not edit source files to "fix" something. If a step fails, report it.
+7. **Don't touch the desktop shortcut or `data/.desktop-icon-done`.** Launching the app
+   creates a `雨滴图` shortcut on the desktop once, and that marker file records it. If the
+   human deleted the shortcut, the marker is why it stays gone — deleting the marker makes
+   it come back, which is the opposite of what they asked for.
 
 ---
 
@@ -33,6 +37,7 @@ same structure. Nothing leaves the machine: the server binds `127.0.0.1` only.
 ```
 双击启动雨滴图.vbs   Windows launcher (silent, no console)
 连接Buddy.vbs        Windows: register this app as an MCP server (silent)
+icon.ico             Icon used by the desktop shortcut
 start.sh             macOS / Linux launcher
 app/                 the program  — read-only for you
 data/                user data    — created on first run; never touch
