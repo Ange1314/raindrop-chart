@@ -144,6 +144,17 @@ Read-only. Nothing is written, modified, or uploaded.
 
 ## FAQ
 
+**Clicking the desktop icon a few times leaves a pile of tabs at the same URL**
+
+If the server is already running, clicking again does **not** start a second instance — it brings
+the window that already has the page to the front, without opening a new tab. It recognises the
+window by the page title, so if you closed that tab (or switched that window to a different tab,
+which changes the title), it can't tell and opens a new one.
+
+Two limits can't be worked around: browsers expose no API for "focus that existing tab", and a
+tab buried behind other windows can't be pulled forward. **So the cheapest habit is a bookmark,
+not the desktop icon.**
+
 **Filenames came out garbled after unzipping**
 
 Some Windows built-in unzip tools ignore the UTF-8 flag on zip entries. Use **7-Zip** or

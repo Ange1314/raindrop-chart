@@ -140,6 +140,11 @@ APP_ID = "raindrop-chart"          # /api/ping 自报家门用，判断端口上
 VERSION = "2.7.0"
 SERVER_PORT = [PORT]               # 实际监听到的端口（可能因占用后移）
 
+# 页面标题：用来认出「已经开着的那个窗口」。
+# ⚠️ 和 ring.html 的 <title> 必须一致 —— 对不上就永远认不出来，
+#    表现是退回「每点一次桌面图标多一个标签」。
+PAGE_TITLE = "Raindrop Chart · 点与周长"
+
 # 工具名 -> 中文短名（点上的字要短，点开才看全名）
 TOOL_ZH = {
     "Bash": "终端", "PowerShell": "终端", "Read": "读文件", "Write": "写文件",
@@ -2291,6 +2296,79 @@ def write_addr_file(url):
         pass
 
 
+def focus_existing_page():
+    """把已经打开的雨滴图窗口抬到前面。认不出来就返回 False。
+
+    为什么要有这个：浏览器**没有**「聚焦已有标签页」的接口。本地程序能做的只有
+    webbrowser.open，而 Chrome 收到它一律新开一个标签 —— 用户点几次桌面图标，
+    就堆几个同地址的标签，自己都分不清哪个是活的。
+
+    Windows 上还有一条路：那个标签如果正是浏览器当前激活的页，窗口标题就等于
+    页面标题。枚举顶层窗口按标题认出来，再抬到前台。认不出来就老老实实开新的。
+
+    只用标准库 ctypes，不引第三方包（这个项目的铁律）。
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        EnumWindows = user32.EnumWindows
+        GetWindowTextW = user32.GetWindowTextW
+        GetWindowTextLengthW = user32.GetWindowTextLengthW
+        IsWindowVisible = user32.IsWindowVisible
+
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _cb(hwnd, _lparam):
+            if not IsWindowVisible(hwnd):
+                return True
+            n = GetWindowTextLengthW(hwnd)
+            if n <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(n + 1)
+            GetWindowTextW(hwnd, buf, n + 1)
+            if PAGE_TITLE in buf.value:
+                found.append(hwnd)
+                return False        # 找到一个就够，停
+            return True
+
+        EnumWindows(_cb, 0)
+        if not found:
+            return False
+
+        hwnd = found[0]
+        SW_RESTORE = 9
+        try:
+            if user32.IsIconic(hwnd):     # 最小化着就先还原，否则只会任务栏闪一下
+                user32.ShowWindow(hwnd, SW_RESTORE)
+            if user32.SetForegroundWindow(hwnd):
+                return True
+            # 前台锁：Windows 只让「当前前台进程」把窗口抬起来。这里通常满足
+            # （是从用户双击拉起的进程里调用的），失败就退一步。
+            user32.BringWindowToTop(hwnd)
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
+def open_page(url):
+    """开页面。已经有开着的就抬到前面，没有再开新标签。
+
+    返回 True 表示开了新标签，False 表示复用了已有的。
+    """
+    if focus_existing_page():
+        print("  页面已经开着，已把它抬到前面（没有再开新标签）")
+        return False
+    webbrowser.open(url)
+    return True
+
+
 def announce(url, buddy):
     """把「开了、在哪、下一步」说清楚。这块之前只打一行 '已启动'，
     结果用户不知道要去哪看 —— 界面问题，不是功能问题。"""
@@ -2420,7 +2498,7 @@ def main():
         if buddy:
             copy_to_clipboard(url)
         else:
-            threading.Timer(0.3, lambda: webbrowser.open(url)).start()
+            threading.Timer(0.3, lambda: open_page(url)).start()
         # pythonw / VBS 启动时 stdin 是 None，直接 .isatty() 会 AttributeError 崩掉。
         if sys.stdin is not None and sys.stdin.isatty():
             input("  按回车关闭这个窗口……")
@@ -2456,7 +2534,7 @@ def main():
     if buddy:
         copy_to_clipboard(url)
     else:
-        threading.Timer(0.7, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.7, lambda: open_page(url)).start()
 
     try:
         srv.serve_forever()
