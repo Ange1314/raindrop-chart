@@ -12,6 +12,10 @@
 只做一件事：往 ~/.workbuddy/mcp.json 里 merge 一条，别的服务器条目一个不碰。
 写之前先备份，解析失败就不动（宁可不改，也不要把别人的配置弄坏）。
 
+输出落在两个地方：
+    · 控制台（有人从终端跑时看这里）
+    · data/注册结果.txt（从 注册MCP.vbs 双击时没有控制台，结果得有个地方看）
+
 命令用 python.exe 而不是 pythonw.exe —— 无窗口版没有 stdout，
 而 MCP 靠 stdout 传协议，换成 pythonw 会直接握手失败。
 """
@@ -30,6 +34,28 @@ ROOT = os.path.dirname(HERE)                            # 包根
 # 解析层和网页共用一份，不另做一个可执行文件。
 ENTRY = os.path.join(HERE, "live_server.py")
 KEY = "raindrop-workflow"
+
+_LINES = []
+
+
+def say(msg=""):
+    """说一句，同时记下来 —— 双击启动时没有控制台，全靠这份记录。"""
+    _LINES.append(msg)
+    print(msg)
+
+
+def flush_report():
+    """把这次的输出写进 data/注册结果.txt。写不进去就算了，别因为日志失败而失败。"""
+    try:
+        import paths
+        paths.ensure()
+        p = os.path.join(paths.USER, "注册结果.txt")
+        # utf-8-sig：记事本打开中文不乱码
+        with io.open(p, "w", encoding="utf-8-sig", newline="\r\n") as fh:
+            fh.write("\n".join(_LINES) + "\n")
+        return p
+    except Exception:
+        return ""
 
 
 def find_python():
@@ -54,14 +80,17 @@ def main():
     cfg_dir = os.path.join(home, ".workbuddy")
     cfg = os.path.join(cfg_dir, "mcp.json")
 
-    print()
-    print("  程序目录：", ROOT)
-    print("  配置文件：", cfg)
-    print()
+    say()
+    say("  Raindrop Chart · 连接 AI")
+    say()
+    say("  程序目录：%s" % ROOT)
+    say("  配置文件：%s" % cfg)
+    say()
 
     if not os.path.isdir(cfg_dir):
-        print("  没找到 WorkBuddy 的配置目录，说明这台机器没装 WorkBuddy。")
-        print("  MCP 是给 AI 客户端用的，没装就不用注册 —— 看图完全不受影响。")
+        say("  没找到 WorkBuddy 的配置目录，说明这台机器没装 WorkBuddy。")
+        say("  MCP 是给 AI 客户端用的，没装就不用注册 —— 看图完全不受影响。")
+        flush_report()
         return 1
 
     data = {"mcpServers": {}}
@@ -70,14 +99,16 @@ def main():
             with io.open(cfg, encoding="utf-8") as fh:
                 data = json.load(fh) or {}
         except Exception as e:
-            print("  mcp.json 解析失败，为免弄坏它，本次不做任何修改：", e)
+            say("  mcp.json 解析失败，为免弄坏它，本次不做任何修改：%s" % e)
+            flush_report()
             return 1
         bak = cfg + ".bak-" + time.strftime("%Y%m%d-%H%M%S")
         try:
             shutil.copy2(cfg, bak)
-            print("  已备份原配置：", bak)
+            say("  已备份原配置：%s" % bak)
         except Exception as e:
-            print("  备份失败，为免风险本次不做修改：", e)
+            say("  备份失败，为免风险本次不做修改：%s" % e)
+            flush_report()
             return 1
 
     servers = data.get("mcpServers")
@@ -98,18 +129,20 @@ def main():
         with io.open(cfg, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(data, ensure_ascii=False, indent=2))
     except Exception as e:
-        print("  写入失败：", e)
+        say("  写入失败：%s" % e)
+        flush_report()
         return 1
 
-    print("  %s：%s" % ("已更新" if existed else "已新增", KEY))
-    print("  其他服务器条目保持原样，一个没动。")
-    print()
-    print("  接下来（顺序别换）：")
-    print("    1. 完全退出并重开 WorkBuddy —— 工具清单在会话启动时才读，不重开不生效")
-    print("    2. 打开连接器管理页，找到 %s" % KEY)
-    print("    3. 点「信任」")
-    print()
-    print("  想撤销：把上面那个 .bak 文件改回 mcp.json 即可。")
+    say("  %s：%s" % ("已更新" if existed else "已新增", KEY))
+    say("  其他服务器条目保持原样，一个没动。")
+    say()
+    say("  接下来（顺序别换）：")
+    say("    1. 完全退出并重开 WorkBuddy —— 工具清单在会话启动时才读，不重开不生效")
+    say("    2. 打开连接器管理页，找到 %s" % KEY)
+    say("    3. 点「信任」")
+    say()
+    say("  想撤销：把上面那个 .bak 文件改回 mcp.json 即可。")
+    flush_report()
     return 0
 
 

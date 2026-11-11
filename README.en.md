@@ -35,7 +35,9 @@ Or click `Code` → `Download ZIP` and unzip it. Don't run it from inside the ar
 
 ### 3. Run
 
-Double-click **`静默启动.vbs`**. That's it.
+On Windows, starting it means double-clicking exactly one file:/n/n**`双击启动雨滴图.vbs`**
+
+No second entry, nothing to choose between.
 
 The server starts in the background and your browser opens `http://127.0.0.1:7788/` by itself.
 There is **no console window** to leave open, and no "which one do I click" question — one entry only.
@@ -173,9 +175,9 @@ run the equivalent yourself: `python app/live_server.py`.
 
 ```
 raindrop-chart/
-├── 静默启动.vbs       ← double-click this (Windows; the only entry, no window)
+├── 双击启动雨滴图.vbs       ← double-click this (Windows; the only entry, no window)
 ├── start.sh           ← macOS / Linux
-├── 注册MCP.bat        ← double-click this too if you want AI to read the data
+├── 注册MCP.vbs        ← double-click this too if you want AI to read the data
 │
 ├── app/               [the software] replace this whole folder to upgrade
 │   ├── live_server.py     Local server + parsing + HTTP API
@@ -184,7 +186,7 @@ raindrop-chart/
 │   ├── paths.py           Code-vs-data partition: which folder is which
 │   ├── lockbox.py         Locking: password check value + which nodes are locked
 │   ├── mcp_server.py      MCP interface (optional, see below)
-│   ├── register_mcp.py    Implementation behind 注册MCP.bat (don't run directly)
+│   ├── register_mcp.py    Implementation behind 注册MCP.vbs (don't run directly)
 │   ├── weights.py         Weight rules: how big a bead gets
 │   ├── data.js            Offline demo data
 │   └── examples/          Bundled sample CSVs (part of the software)
@@ -218,14 +220,22 @@ won't make the program lose your libraries.
 
 Lets an AI read this workflow data directly. **Not needed for viewing the chart.**
 
-#### The easy way: double-click `注册MCP.bat`
+#### This one needs a click — once
 
-Wherever you unzipped the folder — **you never type a path**. The script knows where it is
-and writes its own absolute path into the config:
+**Unzipping does not connect anything.** No AI client goes looking around your disk for a
+folder; it needs a config entry saying which interpreter to run and which file to point at.
+That step can't be skipped — but it only happens once.
 
-1. Double-click `注册MCP.bat`
+Double-click **`注册MCP.vbs`** (no console window; it shows one result dialog at the end):
+
+1. Double-click it — wherever you unzipped the folder, **you never type a path**; the script
+   works out its own absolute path
 2. **Quit WorkBuddy completely and reopen it** (the tool list is read at session start only)
 3. Open the connector page, find `raindrop-workflow`, click "Trust"
+
+After that **you never click it again**: WorkBuddy starts the server itself from the config
+(`app/live_server.py --mcp`). It works even if the web page is closed — only "jump the chart to
+a level" requires the page to be open.
 
 It merges exactly one entry into `~/.workbuddy/mcp.json` and leaves every other server alone.
 It backs the file up first as `mcp.json.bak-<timestamp>`; restore that to undo.
