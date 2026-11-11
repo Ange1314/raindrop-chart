@@ -1249,7 +1249,9 @@
   var fitCache = {};
   function fitText(txt, maxW){
     if (!txt) return '';
-    var key = txt + '|' + (maxW | 0);
+    /* key 必须带字体：同一个名字同一个宽度上限，在 10.5px 和 14px 下
+       能塞进去的字数是不一样的，只按「名字+宽度」缓存会串。 */
+    var key = ctx.font + '\u0001' + txt + '|' + (maxW | 0);
     var got = fitCache[key];
     if (got !== undefined) return got;
     var out = txt;
@@ -1271,7 +1273,7 @@
      只折一刀，不做自动排版：一个名字折三行以上，那已经不是名字而是句子。 */
   function fitText2(txt, maxW){
     if (!txt) return null;
-    var key = 'W2|' + txt + '|' + (maxW | 0);
+    var key = 'W2|' + ctx.font + '\u0001' + txt + '|' + (maxW | 0);
     var got = fitCache[key];
     if (got !== undefined) return got;
     var res = null;
@@ -1296,6 +1298,57 @@
     if (cnt > 4000) fitCache = {};
     fitCache[key] = res;
     return res;
+  }
+
+  /* ---------- 圆内文字的三个几何量 ---------- */
+
+  /* 半径 r 的圆，在离圆心 half 远的那条水平线上还剩多宽。
+     圆是圆的：同一条宽度的字，写在圆心附近很宽松，写在圆的上沿就装不下。
+     原来用「r 的固定倍数」当可用宽度 —— 那等于假设「字永远写在圆心那条线上」，
+     字号一大（字带变厚、离圆心更远）首尾两个字就跑到弧线外面去了。 */
+  function chordW(r, half){
+    if (half >= r) return 0;
+    return 2 * Math.sqrt(r * r - half * half);
+  }
+
+  /* 字号 → font 字符串。以前是 F10..F14 五个常量 + 三元套娃，
+     想加一档字号就得再抄一遍字体名；字号带小数时更是没地方放。 */
+  var fontCache = {};
+  function fontOf(size){
+    var bold = size > 11.6;
+    var k = (bold ? 'b' : 'r') + size;
+    var f = fontCache[k];
+    if (!f){
+      f = fontCache[k] = (bold ? '500 ' : '')
+        + size + 'px system-ui,-apple-system,"PingFang SC",sans-serif';
+    }
+    return f;
+  }
+
+  /* 圆里放不下一整句话。display 名常见的形状是「主名 · 11-08 09:30」，
+     那条尾巴（时间戳）在圆里既占宽度又不帮人认字 ——
+     小圆上一个「画图 · 11-08…」等于什么都没写。
+     所以圆内的文字先砍尾巴再量宽度。整名仍然保留在 node 上，hover/点击看得到。 */
+  function circleLabel(node){
+    if (!node) return '';
+    var s = String(node.disp || node.name || '');
+    s = s.replace(/\s*·\s*\d{1,4}[-:/.]\d{1,2}([-:/.]\d{1,2})?([ T]\d{1,2}:\d{2}(:\d{2})?)?\s*$/, '');
+    /* 长路径只留最后一段。像 c-users-lenovo-desktop-gonjui-raindrop-chart 这种，
+       圆画得再大也读不出「这是哪」，而末尾的 raindrop-chart 一眼就认得。
+       门槛设「总长 > 18」是为了别误伤 snake-life 这种正常名字。
+       带斜杠的取最后一段目录名（Desktop/GonJui/Raindrop Chart → Raindrop Chart）；
+       全用连字符的取末尾两段（…-gonjui-raindrop-chart → raindrop-chart），
+       只取一段会剩个 chart，反而认不出。 */
+    if (s.length > 18){
+      if (s.indexOf('/') >= 0 || s.indexOf('\\') >= 0){
+        var parts = s.split(/[/\\]/).filter(Boolean);
+        if (parts.length >= 3) s = parts[parts.length - 1];
+      } else {
+        var seg = s.split('-');
+        if (seg.length >= 4) s = seg.slice(-2).join('-');
+      }
+    }
+    return s;
   }
 
   function fmtSec(ms){
@@ -3757,10 +3810,19 @@
     ctx.textAlign = 'center';
     ctx.fillStyle = TC.ink;
     ctx.font = '500 15px system-ui,-apple-system,"PingFang SC",sans-serif';
-    ctx.fillText(f.name, CX, expanded ? CY - 6 : CY - 4);
+    /* 中心珠再大也有边。15px 一行放不下就折两行，行距按字的 1.4 倍走 ——
+       原来直接怼一行原名，长标题会横穿整个大圆。 */
+    var cn = circleLabel(f) || String(f.name || '');
+    var cw = chordW(R, 12) * 0.94;
+    var c1 = fitText(cn, cw);
+    var c2 = (c1 !== cn && c1.indexOf('…') >= 0) ? fitText2(cn, cw) : null;
+    if (c2) ctx.fillText(c2[0], CX, expanded ? CY - 14 : CY - 12);
+    else ctx.fillText(c1, CX, expanded ? CY - 6 : CY - 4);
+    if (c2) ctx.fillText(c2[1], CX, expanded ? CY + 7 : CY + 9);
     ctx.fillStyle = TC.sub;
     ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
-    ctx.fillText(expanded ? wtext(f) : '点一下展开', CX, expanded ? CY + 12 : CY + 14);
+    ctx.fillText(fitText(expanded ? wtext(f) : '点一下展开', chordW(R, 12) * 0.94),
+                 CX, expanded ? (c2 ? CY + 28 : CY + 12) : (c2 ? CY + 30 : CY + 14));
   }
 
   /* 高光贴图：只生成一次，之后每帧复用（圆形裁切，圆外透明） */
@@ -3924,46 +3986,64 @@
         if (lastBase !== 'middle'){ ctx.textBaseline = 'middle'; lastBase = 'middle'; }
         if (lastFont !== F11){ ctx.font = F11; lastFont = F11; }
         if (lastFill !== TC.ink2){ ctx.fillStyle = TC.ink2; lastFill = TC.ink2; }
-        ctx.fillText(dispName(d.node),
+        ctx.fillText(fitText(circleLabel(d.node), 120),
           d.x + c * (d.r + 9), d.y + Math.sin(d.ang || 0) * (d.r + 9));
       } else if (d.r >= 20){
-        var maxW = d.r * 1.42;
+        /* 字号、行距、可用宽度三件事都由 r 现算，不再用固定倍数：
+             · 字号跟 r 走四档（10.5 / 11.5 / 13 / 14）
+             · 行距 = 字号 × 1.36 —— 原来固定 6px，两行之间只隔 1px，看着是糊的
+             · 可用宽度 = 那个高度的弦长 × 0.92 —— 字带越厚，弦越短
+           以前 maxW 是 r*1.42（直径的 71%），等于假设字永远写在圆心那条线上；
+           字号一大、字带一厚，首尾两个字就伸到弧线外面去了。 */
+        var fs = d.r >= 64 ? 14 : (d.r >= 44 ? 13 : (d.r >= 30 ? 11.5 : 10.5));
+        var lh = fs * 1.36;
+        var maxW = chordW(d.r, fs * 0.62) * 0.92;
         if (lastBase !== 'alphabetic'){ ctx.textBaseline = 'alphabetic'; lastBase = 'alphabetic'; }
         if (lastAlign !== 'center'){ ctx.textAlign = 'center'; lastAlign = 'center'; }
         if (d.group){
           var gst = groupStat(d);
           if (lastFont !== F12){ ctx.font = F12; lastFont = F12; }
           if (lastFill !== TC.ink2){ ctx.fillStyle = TC.ink2; lastFill = TC.ink2; }
-          ctx.fillText(gst.n + (GK_UNIT[gst.unit] || ' 项'), d.x, d.y - 1);
+          var gcap = chordW(d.r, 15) * 0.92;
+          ctx.fillText(fitText(gst.n + (GK_UNIT[gst.unit] || ' 项'), gcap), d.x, d.y - 1);
           if (lastFill !== TC.sub){ ctx.fillStyle = TC.sub; lastFill = TC.sub; }
-          ctx.fillText(gst.sub, d.x, d.y + 14);
+          ctx.fillText(fitText(gst.sub, gcap), d.x, d.y + 14);
         } else {
-          var fnt = d.r >= 62 ? F14 : (d.r >= 40 ? F13 : (d.r >= 26 ? F11 : F10));
+          var fnt = fontOf(fs);
           if (lastFont !== fnt){ ctx.font = fnt; lastFont = fnt; }
           if (lastFill !== TC.ink2){ ctx.fillStyle = TC.ink2; lastFill = TC.ink2; }
-          /* 裁剪结果直接挂在珠子上：宽度没变、名字没变就不重算。
-             走全局 fitCache 也行，但那个要每帧拼 224 个 key 字符串，
-             GC 压力反而成了新的卡顿源。 */
-          var nm = dispName(d.node);
+          /* 裁剪结果直接挂在珠子上：宽度没变、名字没变、字体没变就不重算。
+             字体必须进判断 —— 同一个名字在 10.5px 和 14px 下能放的字数不同，
+             只比宽度的话，r 跨过档位时会拿着旧字号的结果一直画。 */
+          var nm = circleLabel(d.node);
           var mw = maxW | 0;
-          if (d.__fitW !== mw || d.__fitN !== nm){
+          if (d.__fitW !== mw || d.__fitN !== nm || d.__fitF !== fnt){
             d.__fitW = mw;
             d.__fitN = nm;
+            d.__fitF = fnt;
             var one = fitText(nm, maxW);
-            /* 单行被裁掉了就再试两行。
+            /* 单行被裁掉了才试两行。两行有门槛：
+                 · r >= 30 才折 —— 小圆里上下两行会把整颗珠压满，比一行更难认
+                 · 折出来的两行必须是「整名被拆开」，任何一行被截断就退回单行 ——
+                   两行都带省略号只会比单行更挤，还看不出是谁
                判据必须看「有没有省略号」，不能看长度 —— 「模型的模型」截断后是
                「模型的模…」，长度还是 5，跟原名一样长，比长度会漏掉它。 */
-            var two = (one !== nm && one.indexOf('…') >= 0) ? fitText2(nm, maxW) : null;
+            var two = null;
+            if (one !== nm && one.indexOf('…') >= 0 && d.r >= 30){
+              /* 两行的字带更厚，最窄处在「半行距 + 一行字高」那条线上 */
+              var tw = fitText2(nm, chordW(d.r, lh * 0.5 + fs * 0.52) * 0.92);
+              if (tw && tw[0].indexOf('…') < 0 && tw[1].indexOf('…') < 0) two = tw;
+            }
             d.__fit2 = two;
             d.__fitT = one;
           }
           if (d.__fit2){
-            /* r 够大才敢上下各写一行，否则两行会顶出圆边 */
-            var dy = d.r >= 34 ? 7 : 6;
-            ctx.fillText(d.__fit2[0], d.x, d.y + 4 - dy);
-            ctx.fillText(d.__fit2[1], d.x, d.y + 4 + dy);
+            /* 基线 = 圆心上下各半个行距，再加 0.36 个字高让视觉居中。
+               原来写死「d.y + 4」，小字号偏下、14px 时明显偏上。 */
+            ctx.fillText(d.__fit2[0], d.x, d.y - lh * 0.5 + fs * 0.36);
+            ctx.fillText(d.__fit2[1], d.x, d.y + lh * 0.5 + fs * 0.36);
           } else {
-            ctx.fillText(d.__fitT, d.x, d.y + 4);
+            ctx.fillText(d.__fitT, d.x, d.y + fs * 0.36);
           }
         }
       }
