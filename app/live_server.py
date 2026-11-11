@@ -577,6 +577,13 @@ def ws_from_cwd(cwd):
     return s or None
 
 
+# 用户目录下可能作为工作区顶层的文件夹。只用于把「Desktop-Xxx」还原成
+# 「Desktop/Xxx」—— 白名单，不是黑名单：见 "-" 就切会把 snake-life 切成
+# snake/life，把 2026-09-26-08-40-05 切成五段。
+_ROOT_DIRS = ("Desktop", "WorkBuddy", "Documents", "Downloads", "Pictures",
+              "Music", "Videos", "OneDrive", "Desktop2")
+
+
 def ws_label(dirname):
     """c-Users-张三-Desktop-GonJui-Raindrop Chart -> Desktop/GonJui/Raindrop Chart
 
@@ -587,14 +594,55 @@ def ws_label(dirname):
     home = os.path.expanduser("~").replace("\\", "/").rstrip("/")
     if home:
         # "C:/Users/张三" -> "c-users-张三"
-        stem = home.lower().replace("/", "-")
+        # ★ 必须去掉盘符的冒号：目录名里冒号是非法字符，实际存下来是
+        #   "c-Users-Lenovo-…"，而 "c:-users-lenovo" 永远匹配不上 ——
+        #   结果这条前缀剥不掉，工作区名就成了 "c-Users-Lenovo/2026-…"。
+        stem = home.lower().replace("/", "-").replace(":", "")
         if s.lower().startswith(stem):
             s = s[len(stem):]
             # 后面紧跟的 "-" 是分隔符，去掉
             if s.startswith("-"):
                 s = s[1:]
-    s = s.replace("-Desktop-", "/").replace("-WorkBuddy-", "/")
+    # 顶层目录名的还原：剥完用户目录后，剩下的开头是 "Desktop-xxx" /
+    # "WorkBuddy-xxx"。只把**第一层**的 "-" 还原成 "/"，而且只认这几个
+    # 真实存在的顶层目录 —— 见 "-" 就切会把 snake-life 切成 snake/life。
+    for root in _ROOT_DIRS:
+        if s.lower().startswith(root.lower() + "-"):
+            s = s[:len(root)] + "/" + s[len(root) + 1:]
+            break
+    # 剩下的 "-" 哪些是层级、哪些是名字本身的一部分，无法从字符串判断。
+    # 用文件系统当裁判：从右往左试，把能拼成真实目录的那个 "-" 还原。
+    # 拼不出来的保持原样（宁可少还原一层，也不要把名字切坏）。
+    s = _restore_dashes(s, os.path.expanduser("~").replace("\\", "/"))
     return s or dirname
+
+
+def _restore_dashes(s, base):
+    """把 "CZh-个人信息-面试文档" 里的层级 "-" 还原成 "/"。
+
+    字符串本身分不清「层级分隔」和「名字里本来就有 -」，
+    所以拿文件系统当裁判：枚举所有把 "-" 换成 "/" 的组合，
+    挑第一个在磁盘上真实存在的整路径。
+
+    为什么全枚举而不是从左往右贪心：贪心在第三层就断了 ——
+    "CZh-个人信息-面试文档" 的第一步候选 "CZh/个人信息-面试文档" 不存在，
+    于是整个放弃，第三层永远还原不出来。层数 ≤ 6，2^6 次 isdir 很快。
+    """
+    if "-" not in s or not base:
+        return s
+    dashes = [i for i, ch in enumerate(s) if ch == "-"]
+    if len(dashes) > 8:            # 防御：太长的名字不值得为它枚举 256 次
+        return s
+    from itertools import product
+    for mask in product((0, 1), repeat=len(dashes)):
+        buf = list(s)
+        for pos, on in zip(dashes, mask):
+            if on:
+                buf[pos] = "/"
+        cand = "".join(buf)
+        if os.path.isdir(os.path.join(base, cand.replace("/", os.sep))):
+            return cand
+    return s
 
 
 def scan_one(path):
@@ -926,7 +974,7 @@ def build_library_tree(items):
 
     out, task_nodes = [], []
     for ws, arr in groups.items():
-        if AUTO_WS.match(ws or ""):
+        if is_task_ws(ws):
             task_nodes.append(ws_node(ws, arr, ws_display(ws, items), ws))
             continue
         out.append(ws_node(ws, arr, ws_display(ws, items), ws))
@@ -974,13 +1022,52 @@ def _fmt_at(at, with_sec=False):
         return ""
 
 
+def shorten_path_disp(children):
+    """路径型名字只留「能分开自己的那一小段」。
+
+    工作区的 name 是相对主目录的全路径（Desktop/CZh/个人信息/面试文档、
+    WorkBuddy/2026-05-10-task-1）。画到圆上就是一条塞不下的长串，
+    裁完只剩「Desktop/…」，十几颗圆全长得一样，谁也认不出谁。
+
+    这里只写 disp（给人看的），name / wid / rel 一个都不动 ——
+    地址、锁、接口查询全走那些字段，换个显示名不该影响任何一件。
+
+    规则：从最后一段往前取，取到在本层唯一为止。
+        个人信息/面试文档  →  面试文档
+        Desktop/CZh        →  CZh
+    同层真撞了才带父级（面试文档 vs 另一个面试文档 → CZh/面试文档）。
+    """
+    # 只对「路径型身份」的节点做压缩：工作区有 wid、文件有 rel。
+    # 不加这条限制会误伤 —— 会话标题里出现斜杠（「写/读文件对比」）时
+    # 会被当成路径，"写/读文件对比" 被压成 "读文件对比"，名字就变了。
+    idx = [i for i, c in enumerate(children)
+           if "/" in (c.get("name") or "") and (c.get("wid") or c.get("rel"))]
+    if not idx:
+        return children
+    segs = {}
+    for i in idx:
+        segs[i] = [s for s in children[i]["name"].split("/") if s]
+    for i in idx:
+        s = segs[i]
+        for d in range(1, len(s) + 1):
+            suf = "/".join(s[-d:])
+            if sum(1 for j in idx if "/".join(segs[j][-d:]) == suf) == 1:
+                children[i]["disp"] = suf
+                break
+    return children
+
+
 def dedupe_disp(children):
     """同一层里出现同名时，给显示名补上“能区分开”的那一小段。
 
     只写 disp（给人看的），不动 name（那是数据）。前端优先读 disp、
     没有就退回 name —— 所以这个函数随时可以关掉，不会污染数据。
     """
-    if not children or len(children) < 2:
+    if not children:
+        return children
+    # 先做路径压缩：不管有没有重名，全路径一律不该画在圆上
+    shorten_path_disp(children)
+    if len(children) < 2:
         return children
 
     groups = {}
@@ -1102,7 +1189,7 @@ def build_disk_tree(items):
         }
         # 右列把「任务型目录」收成了一个「任务」节点。左列若平铺 18 个目录，
         # 两列的层级就不一样了，逐行对照必然错位 —— 所以左列也要有同一层聚合。
-        if AUTO_WS.match(arr[0].get("ws") or ""):
+        if is_task_ws(arr[0].get("ws")):
             task_dirs.append(node)
         else:
             plain.append(node)
@@ -1134,6 +1221,28 @@ def build_disk_tree(items):
 
 # 任务型目录（机器生成的名字）——在雨图里按「任务」显示
 AUTO_WS = re.compile(r"^(20\d\d-\d\d-\d\d|automation-|task-|BI$|每日汇报-)")
+# 只认「机器生成」的那三种。这两个要拿**最后一段**去匹配：
+# 工作区名现在是「WorkBuddy/2026-05-10-task-1」这种带前缀的全路径，
+# 用整串去 match 一律不中（^ 锚在开头，开头是 WorkBuddy/），
+# 结果 8 个任务目录各占一个圆，名字还全是「2026-10-29-22-05-45」——
+# 既挤又认不出。BI / 每日汇报- 不进这一条：那是人自己建的文件夹，
+# 不该被并进「任务」。
+AUTO_DIR = re.compile(r"^(20\d\d-\d\d-\d\d|automation-|task-)")
+
+
+def is_task_ws(ws):
+    """这个工作区是机器生成的任务目录吗。
+
+    ★ 判据必须接受「带前缀」和「不带前缀」两种形态：
+      带前缀 = 正常态（WorkBuddy/2026-05-10-task-1）；
+      不带  = 老数据 / 代码在根目录时的退化成（2026-05-10-task-1）。
+      只按前者判断会让老目录突然变成普通工作区，只按后者就是现在这个 bug。
+    """
+    if not ws:
+        return False
+    if AUTO_WS.match(ws):
+        return True
+    return bool(AUTO_DIR.match(ws.split("/")[-1] or ""))
 TASKS_WID = "__tasks__"     # 「任务」空间的固定键
 
 # WorkBuddy「助理」功能的默认工作区。助理内部代号就是 Claw
@@ -1201,6 +1310,11 @@ def build_columns():
 
         label = s.get("label") or sk
         kids = tree.get("children") or []
+        # 双栏里这两棵树也要过一遍显示名压缩：工作区名是相对主目录的全路径，
+        # 树图那一行塞得下，但和雨图的圆共用一份 disp —— 不在这儿压，
+        # 切到雨图那边就又是一串 Desktop/…。dedupe_disp 幂等，重复调用无害。
+        tag_uid(kids)
+        dedupe_disp(kids)
         cnt = sm.get("count") or 0
         unit = sm.get("countUnit") or ""
         is_wb = (src.key == "workbuddy")
@@ -1275,7 +1389,7 @@ def task_label(ws, items):
     这类目录其实就是 WorkBuddy 里的「任务」，所以给它一个「任务 · 会话标题」的名字，
     让它作为一个独立空间被人认出来。返回 None 表示不是任务型目录。
     """
-    if not AUTO_WS.match(ws or ""):
+    if not is_task_ws(ws):
         return None
     cand = []
     for it in items:
@@ -1333,7 +1447,7 @@ def build_shelves(items):
 
     out, tasks = [], []
     for g in groups.values():
-        if AUTO_WS.match(g["ws"]):
+        if is_task_ws(g["ws"]):
             tasks.append(g)
             continue
         out.append({
@@ -1390,7 +1504,7 @@ def build_ws_children(items, ws):
     if ws == TASKS_WID:
         by = {}
         for it in items:
-            if not AUTO_WS.match(it["ws"] or ""):
+            if not is_task_ws(it["ws"]):
                 continue
             g = by.setdefault(it["ws"], {"n": 0, "steps": 0, "turns": 0, "at": 0, "t0": 0})
             g["n"] += 1
@@ -1614,6 +1728,27 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _flt_blocked(self, key):
         return False if self._is_ui() else LOCK.blocked(key)
+
+    def _flt_columns(self, cols):
+        """树图双栏：左右两棵树各剪一次锁。
+
+        ★ 这个接口原来漏了 —— 锁了工作区，树图那边照样把它的名字、
+          会话的 sid、步数、磁盘目录名全吐出来。它和 /api/tree 走的是
+          不同的构造函数（build_columns 自己拼两棵树），所以
+          _flt_tree 管不到它，必须单独挡一次。
+
+        右边的合计（「N 个会话」）不重算，和 /api/library 保持一致：
+        被锁的东西连名字都不出现，但父节点上的合计仍是全量 ——
+        重算等于告诉对方「这里少了几项」。
+        """
+        if self._is_ui() or not cols:
+            return cols
+        out = {}
+        for side in ("disk", "lib"):
+            t = cols.get(side)
+            out[side] = (LOCK.keep(t)
+                         or {"kind": "root", "name": "（已全部锁定）", "children": []}) if t else t
+        return out
 
     def log_message(self, *a):
         pass  # 安静一点，别刷屏
@@ -1869,7 +2004,7 @@ class Handler(SimpleHTTPRequestHandler):
         # 每次都按数据源清单现算 —— 新增一个库，这里立刻多一行。
         if base == "/api/columns":
             try:
-                self._json(build_columns())
+                self._json(self._flt_columns(build_columns()))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
             return
@@ -2357,12 +2492,16 @@ def focus_existing_page():
         return False
 
 
-def open_page(url):
+def open_page(url, reuse=True):
     """开页面。已经有开着的就抬到前面，没有再开新标签。
 
-    返回 True 表示开了新标签，False 表示复用了已有的。
+    reuse=False 用于「服务刚起来」那一刻：此时同一个 URL 上可能挂着上一轮留下的
+    旧标签，那是断线状态（或者显示着旧数据）。把它抬上来等于给用户看一个假的页面，
+    还不如老实地开一个新的。只有确认「服务本来就在跑」时才复用。
+
+    返回 True 表示开了新标签，False 表示复用/聚焦了已有的。
     """
-    if focus_existing_page():
+    if reuse and focus_existing_page():
         print("  页面已经开着，已把它抬到前面（没有再开新标签）")
         return False
     webbrowser.open(url)
@@ -2534,7 +2673,7 @@ def main():
     if buddy:
         copy_to_clipboard(url)
     else:
-        threading.Timer(0.7, lambda: open_page(url)).start()
+        threading.Timer(0.7, lambda: open_page(url, reuse=False)).start()
 
     try:
         srv.serve_forever()
