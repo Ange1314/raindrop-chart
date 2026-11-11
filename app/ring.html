@@ -1265,6 +1265,39 @@
     return out;
   }
 
+  /* 单行放不下就折两行。圆里是圆的，横着放不下、竖着往往还有地方 ——
+     「模型的模型」在 r=26 的圆里单行只能挤出「模型的模…」，
+     折成「模型的 / 模型」两行就完整了。
+     只折一刀，不做自动排版：一个名字折三行以上，那已经不是名字而是句子。 */
+  function fitText2(txt, maxW){
+    if (!txt) return null;
+    var key = 'W2|' + txt + '|' + (maxW | 0);
+    var got = fitCache[key];
+    if (got !== undefined) return got;
+    var res = null;
+    var s = String(txt);
+    if (s.length >= 2){
+      /* 在中点附近找一个「两边都不超宽」的折点。优先挑空格、连字符、斜杠
+         这类天然断点，其次是离中点最近的任意位置。 */
+      var best = -1, bestScore = -1;
+      for (var i = 1; i < s.length; i++){
+        var a = s.slice(0, i), b = s.slice(i);
+        var wa = ctx.measureText(a).width, wb = ctx.measureText(b).width;
+        if (wa > maxW || wb > maxW) continue;
+        var ch = s.charAt(i - 1);
+        var soft = (ch === ' ' || ch === '-' || ch === '/' || ch === '·') ? 2 : 0;
+        var score = soft * 1000 - Math.abs(i - s.length / 2);
+        if (score > bestScore){ bestScore = score; best = i; }
+      }
+      if (best > 0) res = [s.slice(0, best), s.slice(best)];
+    }
+    var cnt = 0;
+    for (var k in fitCache) cnt++;
+    if (cnt > 4000) fitCache = {};
+    fitCache[key] = res;
+    return res;
+  }
+
   function fmtSec(ms){
     if (!ms) return '—';
     return ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms) + 'ms';
@@ -3916,9 +3949,22 @@
           if (d.__fitW !== mw || d.__fitN !== nm){
             d.__fitW = mw;
             d.__fitN = nm;
-            d.__fitT = fitText(nm, maxW);
+            var one = fitText(nm, maxW);
+            /* 单行被裁掉了就再试两行。
+               判据必须看「有没有省略号」，不能看长度 —— 「模型的模型」截断后是
+               「模型的模…」，长度还是 5，跟原名一样长，比长度会漏掉它。 */
+            var two = (one !== nm && one.indexOf('…') >= 0) ? fitText2(nm, maxW) : null;
+            d.__fit2 = two;
+            d.__fitT = one;
           }
-          ctx.fillText(d.__fitT, d.x, d.y + 4);
+          if (d.__fit2){
+            /* r 够大才敢上下各写一行，否则两行会顶出圆边 */
+            var dy = d.r >= 34 ? 7 : 6;
+            ctx.fillText(d.__fit2[0], d.x, d.y + 4 - dy);
+            ctx.fillText(d.__fit2[1], d.x, d.y + 4 + dy);
+          } else {
+            ctx.fillText(d.__fitT, d.x, d.y + 4);
+          }
         }
       }
       if (d.a < 0.999) ctx.globalAlpha = 1;
