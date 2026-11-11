@@ -1173,7 +1173,9 @@ def build_disk_tree(items):
                 "kind": "file",
                 "name": os.path.basename(it.get("path") or ""),
                 "mono": True,
-                "note": "→ " + (it.get("title") or "(无标题)"),
+                # 这里原来跟了一句「→ 会话标题」。左栏是「磁盘上长什么样」，
+                # 一行里塞文件名 + 标题两串东西，反而两头都读不清；
+                # 标题在右栏「资料库」那边本来就是主名，不用在左栏重报一遍。
                 "right": "%d 步 · %s" % (it.get("steps") or 0, _sz(it.get("size"))),
                 "sid": it.get("id"),
                 "children": [],
