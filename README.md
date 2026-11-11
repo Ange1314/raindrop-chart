@@ -72,6 +72,9 @@ Windows 有两个入口，**做的事一样，区别只在于你看不看得到�
 
 （如果系统问「是否允许 Python 访问网络」，可以拒绝 —— 它只在本机 `127.0.0.1` 上通信。）
 
+> **只想要图，就到此为止。** 想让 AI 也能读这套数据，再多一步：双击 `注册MCP.bat`，
+> 然后重开 WorkBuddy —— 详见下面 [MCP 接口](#mcp-接口可选进阶)。
+
 **macOS / Linux：** 在终端里进入这个文件夹，执行：
 
 ```bash
@@ -263,6 +266,11 @@ Excel 里「另存为」→ 文件类型选 **「CSV UTF-8（逗号分隔）」*
 
 ## 常见问题
 
+**Q：解压后文件名变成乱码（`啟動.bat`、`???`）**
+
+用 Windows 自带的「解压到当前文件夹」解旧 zip 时偶发，是压缩包里的编码标记没被认。
+换 **7-Zip** 或 **Bandizip** 解压就好，或者干脆 `git clone`。
+
 **Q：双击 `启动.bat` 闪一下就没了**
 
 说明 Python 没装好或者没在 PATH 里。改成双击 `启动.bat` 后在弹出的窗口里看报错 —— 如果窗口也一闪而过，右键 `启动.bat` → 编辑，在最后加一行 `pause`，再双击就能停住看错误。
@@ -300,6 +308,7 @@ raindrop-chart/
 ├── 启动.bat           ← 双击这个（Windows，有黑窗口，能看到真实报错）
 ├── 静默启动.vbs       ← 或者双击这个（Windows，不弹窗口）
 ├── start.sh           ← macOS / Linux 用这个
+├── 注册MCP.bat        ← 想让 AI 能读这套数据，再双击这个
 │
 ├── app/               【软件本体】升级时整目录替换，别往里放手写的东西
 │   ├── live_server.py 主程序：起本地服务 + 解析数据 + 提供 API
@@ -308,6 +317,7 @@ raindrop-chart/
 │   ├── paths.py       目录分区：哪边是程序、哪边是你的数据
 │   ├── lockbox.py     锁定：密码校验值、哪些节点被锁（不含密码本体）
 │   ├── mcp_server.py  MCP 接口（可选，见下）
+│   ├── register_mcp.py 注册用的实现（被 注册MCP.bat 调用，不直接双击）
 │   ├── weights.py     权重口径：珠子多大、怎么算（改视觉比例看这里）
 │   ├── data.js        离线演示数据（不起服务直接打开 ring.html 时用）
 │   └── examples/      自带示例 CSV（属于程序，不是你的数据）
@@ -347,7 +357,20 @@ raindrop-chart/
 
 **不需要这个功能就完全不用管它**，不影响看图。
 
-要启用的话，在 `~/.workbuddy/mcp.json` 里加一段（路径换成你实际的）：
+#### 最省事的做法：双击 `注册MCP.bat`
+
+包放在哪个文件夹都行 —— **不用你填路径**。脚本知道自己在哪，会把绝对路径算好写进配置：
+
+1. 双击 `注册MCP.bat`
+2. **完全退出并重开 WorkBuddy**（工具清单只在会话启动时读，不重开不生效）
+3. 打开连接器管理页，找到 `raindrop-workflow`，点「信任」
+
+脚本只往 `~/.workbuddy/mcp.json` 里 merge 一条，别的服务器条目一个不碰；改之前会先备份成
+`mcp.json.bak-<时间>`，想撤销就把备份改回去。
+
+#### 想手动配（或者你的客户端不是 WorkBuddy）
+
+自己编辑 `~/.workbuddy/mcp.json`，加一段。`args` 里那个路径**取决于你把包解压到哪**：
 
 ```json
 {
@@ -355,14 +378,15 @@ raindrop-chart/
     "raindrop-workflow": {
       "type": "stdio",
       "command": "python",
-      "args": ["/你的路径/raindrop-chart/app/live_server.py", "--mcp"],
+      "args": ["<解压位置>/raindrop-chart/app/live_server.py", "--mcp"],
       "timeout": 30000
     }
   }
 }
 ```
 
-改完重启 WorkBuddy，在连接器管理页找到它点「信任」。
+> 路径怎么拿：在资源管理器里进到 `app` 文件夹，点一下地址栏，把整条复制下来，
+> 后面补 `\live_server.py`。注意 JSON 里反斜杠要写两个（`\\`），或者干脆全用正斜杠 `/`。
 
 它提供三个工具：
 

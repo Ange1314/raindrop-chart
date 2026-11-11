@@ -150,6 +150,11 @@ Read-only. Nothing is written, modified, or uploaded.
 
 ## FAQ
 
+**Filenames came out garbled after unzipping**
+
+Some Windows built-in unzip tools ignore the UTF-8 flag on zip entries. Use **7-Zip** or
+**Bandizip**, or just `git clone`.
+
 **The window flashes and disappears** — Python isn't installed or isn't on PATH. Right-click `启动.bat` → Edit, add a `pause` line at the end, then run again to read the error.
 
 **Blank page** — Check the terminal for errors. If the port is taken, the program auto-shifts (7788 → 7789 → …). **Use the address printed in the terminal**, not an old bookmark.
@@ -171,6 +176,7 @@ raindrop-chart/
 ├── 启动.bat           ← double-click this (Windows, console window, shows real errors)
 ├── 静默启动.vbs       ← or this (Windows, no window at all)
 ├── start.sh           ← macOS / Linux
+├── 注册MCP.bat        ← double-click this too if you want AI to read the data
 │
 ├── app/               [the software] replace this whole folder to upgrade
 │   ├── live_server.py     Local server + parsing + HTTP API
@@ -179,6 +185,7 @@ raindrop-chart/
 │   ├── paths.py           Code-vs-data partition: which folder is which
 │   ├── lockbox.py         Locking: password check value + which nodes are locked
 │   ├── mcp_server.py      MCP interface (optional, see below)
+│   ├── register_mcp.py    Implementation behind 注册MCP.bat (don't run directly)
 │   ├── weights.py         Weight rules: how big a bead gets
 │   ├── data.js            Offline demo data
 │   └── examples/          Bundled sample CSVs (part of the software)
@@ -212,6 +219,18 @@ won't make the program lose your libraries.
 
 Lets an AI read this workflow data directly. **Not needed for viewing the chart.**
 
+#### The easy way: double-click `注册MCP.bat`
+
+Wherever you unzipped the folder — **you never type a path**. The script knows where it is
+and writes its own absolute path into the config:
+
+1. Double-click `注册MCP.bat`
+2. **Quit WorkBuddy completely and reopen it** (the tool list is read at session start only)
+3. Open the connector page, find `raindrop-workflow`, click "Trust"
+
+It merges exactly one entry into `~/.workbuddy/mcp.json` and leaves every other server alone.
+It backs the file up first as `mcp.json.bak-<timestamp>`; restore that to undo.
+
 Add to `~/.workbuddy/mcp.json` (adjust the path):
 
 ```json
@@ -220,7 +239,7 @@ Add to `~/.workbuddy/mcp.json` (adjust the path):
     "raindrop-workflow": {
       "type": "stdio",
       "command": "python",
-      "args": ["/path/to/raindrop-chart/app/live_server.py", "--mcp"],
+      "args": ["<where you unzipped it>/raindrop-chart/app/live_server.py", "--mcp"],
       "timeout": 30000
     }
   }
