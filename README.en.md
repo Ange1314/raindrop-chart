@@ -63,8 +63,8 @@ only a salt and a check value sit on disk.
 **Windows**: double-click `双击启动雨滴图.vbs`. Your browser opens by itself. No console
 window, nothing to configure.
 
-The first double-click **puts a 「雨滴图」 icon on your desktop** — after that, start it from
-there. Delete it and it **won't come back**; move the folder and the next launch re-points it.
+The first double-click **puts a `Raindrop Chart` icon on your desktop** — after that, start it
+from there. (The browser tab uses the same icon once the server is up.) Delete it and it **won't come back**; move the folder and the next launch re-points it.
 
 **macOS / Linux**: in this folder, run
 

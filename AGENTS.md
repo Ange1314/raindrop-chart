@@ -26,7 +26,7 @@ same structure. Nothing leaves the machine: the server binds `127.0.0.1` only.
    the program uses the Python standard library only.
 6. Do not edit source files to "fix" something. If a step fails, report it.
 7. **Don't touch the desktop shortcut or `data/.desktop-icon-done`.** Launching the app
-   creates a `雨滴图` shortcut on the desktop once, and that marker file records it. If the
+   creates a `Raindrop Chart` shortcut on the desktop once, and that marker file records it. If the
    human deleted the shortcut, the marker is why it stays gone — deleting the marker makes
    it come back, which is the opposite of what they asked for.
 
