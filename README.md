@@ -57,7 +57,15 @@ CSV 丢进去就能看；如果你用 Buddy，它的会话记录也能直接读�
 
 ### 第 1 步 · 启动
 
-双击 **`双击启动雨滴图.vbs`**。浏览器自己打开，没有黑窗口，没有设置项。
+**Windows**：双击 `双击启动雨滴图.vbs`。浏览器自己打开，没有黑窗口，没有设置项。
+
+**macOS / Linux**：在这个文件夹里执行
+
+```bash
+chmod +x start.sh && ./start.sh
+```
+
+**前提只有一个**：机器上有 Python 3.8+。没有的话先装（[python.org](https://www.python.org/downloads/)，Windows 安装第一屏记得勾 `Add python.exe to PATH`）。
 
 ### 第 2 步 · 给它数据
 

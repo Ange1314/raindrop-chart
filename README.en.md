@@ -60,8 +60,18 @@ only a salt and a check value sit on disk.
 
 ### Step 1 · Start it
 
-Double-click **`双击启动雨滴图.vbs`**. Your browser opens by itself. No console window,
-nothing to configure.
+**Windows**: double-click `双击启动雨滴图.vbs`. Your browser opens by itself. No console
+window, nothing to configure.
+
+**macOS / Linux**: in this folder, run
+
+```bash
+chmod +x start.sh && ./start.sh
+```
+
+**One prerequisite**: Python 3.8+ on the machine. If it's missing, install it first
+([python.org](https://www.python.org/downloads/); on Windows tick `Add python.exe to PATH`
+on the first screen).
 
 ### Step 2 · Give it something to draw
 

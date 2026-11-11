@@ -22,7 +22,8 @@ cd raindrop-chart
 
 Or click `Code` → `Download ZIP` and unzip it. Don't run it from inside the archive.
 
-> No command line? Grab the standalone build from [Releases](../../releases) — unzip and double-click `Start.vbs` (Windows). Python not required.
+> Don't want to touch a command line? You still need Python first — **there is no standalone build yet**
+> (a zip with an embedded runtime isn't done). Once Python is in, daily use is one double-click.
 
 ### 3. Run
 

@@ -90,6 +90,22 @@ def main():
     if not os.path.isdir(cfg_dir):
         say("  没找到 WorkBuddy 的配置目录，说明这台机器没装 WorkBuddy。")
         say("  MCP 是给 AI 客户端用的，没装就不用注册 —— 看图完全不受影响。")
+        say()
+        # 不替别的客户端写配置：它们的路径和格式各不相同，猜错就是把人家的
+        # 配置文件弄坏。只把该写什么打出来，谁来写由用户自己的客户端决定。
+        say("  如果你用的是别的 AI 客户端（Claude Desktop / Cursor / …），")
+        say("  在它的 MCP 配置里加这一段（路径按你自己的实际位置改）：")
+        say()
+        say('  {')
+        say('    "mcpServers": {')
+        say('      "%s": {' % KEY)
+        say('        "type": "stdio",')
+        say('        "command": "%s",' % find_python().replace("\\", "\\\\"))
+        say('        "args": ["%s", "--mcp"],' % ENTRY.replace("\\", "\\\\"))
+        say('        "timeout": 30000')
+        say('      }')
+        say('    }')
+        say('  }')
         flush_report()
         return 1
 
