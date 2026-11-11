@@ -80,6 +80,15 @@ once in the connector page.
 
 **You only do this once.** After that Buddy starts the connector by itself, every time.
 
+### Don't feel like clicking? Let the AI install it
+
+Hand **`AGENTS.md`** to Buddy and say "install it following this".
+
+It checks Python, starts the server, writes the connector config, then verifies the
+handshake itself and tells you to restart. That file also pins down what it must not do:
+**don't touch `app/`, don't touch `data/`, don't upload anything, don't install dependencies.**
+If it does any of that, stop it.
+
 ---
 
 ## What it doesn't do

@@ -46,11 +46,29 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 _BOOT_HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def _boot_log_dir():
+    """启动失败日志落哪儿。
+
+    分发态把日志放进 ../data，不放进 app/ —— 程序目录必须是只读的，
+    否则「整目录替换升级」时会把用户的日志一起换掉。
+    这时候 paths.py 可能正是缺的那个，所以这里不能 import paths，只能自己判。
+    """
+    if os.path.basename(_BOOT_HERE).lower() in ("app", "src"):
+        d = os.path.join(os.path.dirname(_BOOT_HERE), "data")
+        try:
+            os.makedirs(d, exist_ok=True)
+            return d
+        except Exception:
+            pass
+    return _BOOT_HERE
+
+
 def _boot_fail(title, detail):
     """启动早期失败时的唯一出口。写日志 + 尽力弹窗，绝不静默退出。"""
     txt = "%s\n\n%s\n" % (title, detail)
+    log_path = os.path.join(_boot_log_dir(), "运行日志.txt")
     try:
-        with io.open(os.path.join(_BOOT_HERE, "运行日志.txt"), "a", encoding="utf-8") as fh:
+        with io.open(log_path, "a", encoding="utf-8") as fh:
             fh.write("\n===== %s 启动失败 =====\n%s\n"
                      % (time.strftime("%Y-%m-%d %H:%M:%S"), txt))
     except Exception:
@@ -58,7 +76,7 @@ def _boot_fail(title, detail):
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(
-            None, txt + "\n（详情已写入此文件夹的 运行日志.txt）",
+            None, txt + "\n（详情写在这里：%s）" % log_path,
             "Raindrop Chart 启动失败", 0x10)
     except Exception:
         try:
@@ -81,14 +99,27 @@ try:
     # 锁定：密码控制某些节点在接口层不出现。密码不落盘，只存 salt + check。
     from lockbox import LockBox
 except Exception as _boot_err:
+    # 报错要指名道姓。只说「缺少必需的 .py」等于让用户自己猜是哪一个——
+    # 实测最常缺的就是后加的模块（paths.py / lockbox.py），
+    # 而旧文案里根本没列它们，等于把用户往错的方向推。
+    _miss = ""
+    _ename = repr(_boot_err)
+    for _mod, _file in (("paths", "paths.py"), ("lockbox", "lockbox.py"),
+                        ("datasource", "datasource.py"), ("weights", "weights.py")):
+        if ("'%s'" % _mod) in _ename:
+            _miss = "\n★ 这次缺的是：%s —— 把它补回去就能启动。\n" % _file
+            break
     _boot_fail(
         "缺少必需的 Python 文件，程序无法启动。",
-        "错误：%r\n\n"
+        "错误：%r\n%s\n"
         "通常是因为：\n"
-        "  · 压缩包没有解压完整（最外层文件夹里的 .py 要全部在）\n"
-        "  · 杀毒软件把某个 .py 当可疑文件删掉了\n\n"
-        "核对一下这个文件夹里应该有这些文件：\n"
-        "  live_server.py  datasource.py  weights.py  mcp_server.py  ring.html  lockbox.py" % (_boot_err,))
+        "  · 压缩包没有解压完整（app 文件夹里的 .py 要全部在）\n"
+        "  · 杀毒软件把某个 .py 当可疑文件删掉了\n"
+        "  · 只复制了几个文件，没有整个文件夹一起拷\n\n"
+        "核对一下 app 文件夹里应该有这些（一个都不能少）：\n"
+        "  live_server.py   datasource.py   weights.py   mcp_server.py\n"
+        "  ring.html        lockbox.py      paths.py      register_mcp.py"
+        % (_boot_err, _miss))
     raise SystemExit(1)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
