@@ -3036,8 +3036,8 @@
         if (pendReveal){ var pr = pendReveal; pendReveal = ''; treeReveal(pr); }
       })
       .catch(function(){
-        tbdEl.innerHTML = '<div class="trow"><span class="tn tq">请双击「Start.vbs」启动</span></div>';
-        tbmEl.innerHTML = '<div class="trow"><span class="tn tq">请双击「Start.vbs」启动</span></div>';
+        tbdEl.innerHTML = '<div class="trow"><span class="tn tq">请双击启动脚本</span></div>';
+        tbmEl.innerHTML = '<div class="trow"><span class="tn tq">请双击启动脚本</span></div>';
       });
   }
 
@@ -3491,7 +3491,7 @@
       })
       .catch(function(){
         liveFail++;
-        setLive('请双击「Start.vbs」启动', true);
+        setLive('请双击启动脚本', true);
       });
   }
 
@@ -4925,7 +4925,7 @@
     warn.innerHTML = '你打开的是本地文件，不是服务。<br>'
       + '<span style="color:var(--muted)">背后画的只是 data.js 里的演示数据，不是你的会话。</span>'
       + '<div style="margin:14px 0 6px;color:var(--accent);font-weight:500">请访问 http://127.0.0.1:7788/</div>'
-      + '<span style="color:var(--muted)">或双击同目录的启动脚本（Windows 是 start.bat，macOS / Linux 是 start.sh）</span>';
+      + '<span style="color:var(--muted)">或双击同一层文件夹里的启动脚本（Windows 是那个 .bat，macOS / Linux 是 start.sh）</span>';
     document.body.appendChild(warn);
   } else {
     /* http 打开却没连上：服务刚挂了，或者这个端口上不是自己。

@@ -43,7 +43,10 @@ import shutil
 import json
 import hashlib
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+import paths
+
+# 软件本体目录。示例 CSV 这类「随程序走」的东西挂在这里。
+HERE = paths.CODE
 
 
 class Source(object):
@@ -437,7 +440,7 @@ def _weigh_bytes(n):
 #  注册表
 # ==================================================================
 
-IMPORT_DIR = os.path.join(HERE, "sources")
+IMPORT_DIR = paths.IMPORT_DIR
 # 断开的库不删，挪到这儿 —— 误点的代价必须小于重导一次
 ARCHIVE_DIR = os.path.join(IMPORT_DIR, "_归档")
 

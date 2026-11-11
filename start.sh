@@ -14,4 +14,4 @@ else
 fi
 
 echo "Raindrop Chart 正在启动……"
-exec "$PY" live_server.py
+exec "$PY" app/live_server.py

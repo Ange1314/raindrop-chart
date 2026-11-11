@@ -92,9 +92,12 @@ except Exception as _boot_err:
     raise SystemExit(1)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# 可写目录：开发态就是脚本目录；打包成单 exe 时由外部指到 exe 旁边，
-# 否则用户导入的 CSV 和缓存会落进临时解压区，进程一退全没了。
-USER = os.environ.get("RD_USER_DIR") or HERE
+# 分区：HERE = 软件本体（只读、可整目录替换）；
+#       USER = 软件的信息（索引、导入的库、锁、日志），升级时不动。
+# 两种布局由 paths.py 判定，开发态退化成「同一个目录」，老用户升级不受影响。
+import paths                                # noqa: E402
+USER = paths.USER
+IMPORT_DIR = paths.IMPORT_DIR
 # 锁：一个 json 文件、一把密码、一份被锁清单。密码本身不进这个文件。
 LOCK = LockBox(os.path.join(USER, "_lock.json"))
 PROJECTS = os.path.expanduser("~/.workbuddy/projects")
@@ -2299,12 +2302,16 @@ def announce(url, buddy):
         print("    页面右下角 + 可以随时换一份 CSV。")
     print()
     print("  这个窗口不要关 —— 关了就是断流。")
-    print("  地址同时存到了同目录：当前地址.txt")
+    print("  地址同时存到了：%s" % os.path.join(USER, "当前地址.txt"))
     print(bar)
     print()
 
 
 def main():
+    # 首次运行：把「软件的信息」那几个目录补齐（分发态是 <包根>/data）。
+    # 放在这里而不是 import 阶段 —— import 不该有副作用。
+    paths.ensure()
+
     # --mcp：同一个 python.exe 换个入口就是 MCP 服务器。
     # 网页和 AI 因此共用一份解析层，也不用为 MCP 单独维护第二个可执行文件。
     if "--mcp" in sys.argv:

@@ -25,7 +25,7 @@ cls
 echo.
 echo   Raindrop Chart 正在启动，请稍等一下……
 echo.
-"%PY%" live_server.py
+"%PY%" "app\live_server.py"
 set "RC=%ERRORLEVEL%"
 
 echo.

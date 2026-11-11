@@ -39,8 +39,8 @@ Windows has two launchers. **They do the same thing; the only difference is whet
 
 | Double-click | What happens | When to use |
 |---|---|---|
-| **`start.bat`** | Opens a console window showing the server address; browser opens automatically | **Use this first.** If something breaks, you can read the actual error |
-| **`double-click-silent-start.vbs`** | **No window at all**; server starts silently, browser opens automatically | Daily use. On failure it shows a message box and writes the reason to `运行日志.txt` |
+| **`启动.bat`** | Opens a console window showing the server address; browser opens automatically | **Use this first.** If something breaks, you can read the actual error |
+| **`静默启动.vbs`** | **No window at all**; server starts silently, browser opens automatically | Daily use. On failure it shows a message box and writes the reason to `data/运行日志.txt` |
 
 **macOS / Linux:**
 
@@ -97,7 +97,7 @@ you can still open it — only the icon changes, into a **solid red** one. Nothi
 
 ## Your own data
 
-**Easiest:** drop a `.csv` into the `sources/` folder and refresh the page. No restart needed. Delete the file and the bead disappears.
+**Easiest:** drop a `.csv` into `data/sources/` (created on first run) and refresh the page. No restart needed. Delete the file and the bead disappears.
 
 **Or:** right-click the canvas. Two entries at the bottom:
 
@@ -150,7 +150,7 @@ Read-only. Nothing is written, modified, or uploaded.
 
 ## FAQ
 
-**The window flashes and disappears** — Python isn't installed or isn't on PATH. Right-click `start.bat` → Edit, add a `pause` line at the end, then run again to read the error.
+**The window flashes and disappears** — Python isn't installed or isn't on PATH. Right-click `启动.bat` → Edit, add a `pause` line at the end, then run again to read the error.
 
 **Blank page** — Check the terminal for errors. If the port is taken, the program auto-shifts (7788 → 7789 → …). **Use the address printed in the terminal**, not an old bookmark.
 
@@ -167,19 +167,41 @@ Read-only. Nothing is written, modified, or uploaded.
 ```
 raindrop-chart/
 ├── live_server.py     Local server + data parsing + HTTP API
-├── ring.html          Canvas page (styles and scripts inlined)
-├── datasource.py      Data source adapters: WorkBuddy / CSV / folder tree
-├── lockbox.py         Locking: password check value + which nodes are locked (never the password)
-├── mcp_server.py      MCP interface (optional, see below)
-├── weights.py         Weight rules: how big a bead gets (tune the visuals here)
-├── data.js            Offline demo data, used when opening ring.html directly
-├── start.bat          Windows launcher (console window, shows errors)
-├── double-click-silent-start.vbs   Windows silent launcher (no window)
-├── start.sh           macOS / Linux launcher
-├── examples/          Sample CSVs
-├── sources/           Put your CSVs here (gitignored)
+raindrop-chart/
+├── 启动.bat           ← double-click this (Windows, console window, shows real errors)
+├── 静默启动.vbs       ← or this (Windows, no window at all)
+├── start.sh           ← macOS / Linux
+│
+├── app/               [the software] replace this whole folder to upgrade
+│   ├── live_server.py     Local server + parsing + HTTP API
+│   ├── ring.html          Canvas page (styles and scripts inlined)
+│   ├── datasource.py      Data source adapters: WorkBuddy / CSV / folder tree
+│   ├── paths.py           Code-vs-data partition: which folder is which
+│   ├── lockbox.py         Locking: password check value + which nodes are locked
+│   ├── mcp_server.py      MCP interface (optional, see below)
+│   ├── weights.py         Weight rules: how big a bead gets
+│   ├── data.js            Offline demo data
+│   └── examples/          Bundled sample CSVs (part of the software)
+│
+├── data/              [your data] created on first run; upgrades never touch it
+│   └── sources/           Put your CSVs here (gitignored)
+│
+├── README.md / README.en.md
+├── LICENSE
 └── docs/img/          Screenshots
 ```
+
+**Why `app/` and `data/` are separate:** they have different lifespans. The program gets
+replaced on every upgrade; your data must survive that. Split this way:
+
+- upgrade → swap `app/` only, `data/` stays, your libraries are still there
+- backup → copy `data/` only; it's the only place with your traces in it
+- start over → delete `data/`, the next run recreates it empty
+- share the program → ship `app/` alone; none of your data can leak out
+
+The data folder can be relocated with the `RD_USER_DIR` environment variable.
+The old flat layout (code and data in one folder) is still recognised, so upgrading
+won't make the program lose your libraries.
 
 - **Standard library only.** No `pip install`.
 - `ring.html` inlines all CSS/JS; the only local dependency is `data.js`.
@@ -198,7 +220,7 @@ Add to `~/.workbuddy/mcp.json` (adjust the path):
     "raindrop-workflow": {
       "type": "stdio",
       "command": "python",
-      "args": ["/path/to/raindrop-chart/live_server.py", "--mcp"],
+      "args": ["/path/to/raindrop-chart/app/live_server.py", "--mcp"],
       "timeout": 30000
     }
   }
@@ -235,12 +257,12 @@ Your data does not leave your computer.
 - The entire codebase makes **exactly one** outbound connection: probing `127.0.0.1` to see if an instance is already running. No external domains
 - No telemetry, no accounts, no uploads
 - Session logs are opened read-only
-- Cache (`_index.json`) and imported data (`sources/`) stay local and are gitignored
+- Cache (`data/_index.json`) and imported data (`data/sources/`) stay local and are gitignored
 
 ### What it stores locally
 
 Besides the original session files (which are WorkBuddy's own), this program generates one
-index file, `_index.json`, containing session titles, file paths, and **about 1.2 KB of body
+index file, `data/_index.json`, containing session titles, file paths, and **about 1.2 KB of body
 text per session** (used for search).
 
 | Stored | Why | Sensitivity |
@@ -253,7 +275,7 @@ text per session** (used for search).
 in its exclusion list and re-scans the finished package to confirm it isn't there — but if you
 copy the folder by hand, delete it first.
 
-To clear the index: delete `_index.json`; it rebuilds on next start.
+To clear the index: delete `data/_index.json`; it rebuilds on next start.
 
 Verify it yourself:
 
