@@ -1,0 +1,287 @@
+# Raindrop Chart
+
+Turn hierarchical data into a diagram you can click through.
+
+Outer circle = a group. Beads on the rim = items in that group. Bigger bead = bigger value. Click to drill in, hover to read the numbers.
+
+![Home](docs/img/01-home.png)
+
+**Everything runs on your own machine.** It opens one local page on `127.0.0.1`, no network access, no upload, no account. Close it and it's gone.
+
+> 中文说明见 [README.md](README.md)
+
+---
+
+## Quick start
+
+### 1. Check for Python
+
+```bash
+python --version
+```
+
+Need **3.8 or newer**. If the command is missing, install Python from [python.org](https://www.python.org/downloads/) — on Windows, **tick `Add python.exe to PATH` on the first installer screen**.
+
+### 2. Get the code
+
+```bash
+git clone https://github.com/Ange1314/raindrop-chart.git
+cd raindrop-chart
+```
+
+Or click `Code` → `Download ZIP` and unzip it. Don't run it from inside the archive.
+
+> No command line? Grab the standalone build from [Releases](../../releases) — unzip and double-click `Start.vbs` (Windows). Python not required.
+
+### 3. Run
+
+Windows has two launchers. **They do the same thing; the only difference is whether you see a console window.**
+
+| Double-click | What happens | When to use |
+|---|---|---|
+| **`start.bat`** | Opens a console window showing the server address; browser opens automatically | **Use this first.** If something breaks, you can read the actual error |
+| **`double-click-silent-start.vbs`** | **No window at all**; server starts silently, browser opens automatically | Daily use. On failure it shows a message box and writes the reason to `运行日志.txt` |
+
+**macOS / Linux:**
+
+```bash
+chmod +x start.sh    # first time only
+./start.sh
+```
+
+Your browser opens automatically. Keep the terminal window open — closing it stops the server.
+(With the silent launcher there is no window; stop it via Task Manager → `pythonw.exe`.)
+
+---
+
+## Using it
+
+![Drill down](docs/img/02-drill.png)
+
+| Action | Result |
+|---|---|
+| **Click a bead** | Drill one level deeper |
+| **Click the breadcrumb** | Jump back up to any level |
+| **Hover** | Show name and value |
+| **Drag a bead** | Move it aside to see what's behind — it springs back on release |
+| **Right-click** | Menu: refresh / pin / expand / copy name / copy path / theme / add data source (CSV or folder) |
+| **Esc** | Collapse all children |
+| **Browser back / `Alt+←`** | Go up one level |
+| **Search box** | Type a keyword, press Enter to jump to it. Searches **titles, file names and conversation text**; shows a snippet around the hit |
+| **Top right 「树图 / 雨图」** | Switch between ring view and two-column tree view |
+
+---
+
+## Locking: hide items from AI, not from yourself
+
+Every row on the left ends with two icons that do two different jobs:
+
+| Icon | What it does | Tooltip |
+|---|---|---|
+| 👁 eye | Hide this level from the chart (**you** won't see it either) | 隐藏：在雨滴图中隐藏 |
+| 🔒 lock | **Block AI from searching or touching it — you keep working as usual** | 锁定：禁止 AI 搜索和操作，但你可以正常使用 |
+
+A lock behaves like a layer lock in Photoshop: the row is still there, the numbers are still there,
+you can still open it — only the icon changes, into a **solid red** one. Nothing is duplicated, nothing is hidden.
+
+- It only affects **outside readers**: the MCP interface and the search box can no longer see it.
+  Your own view is untouched.
+- The table header counts them: `已锁定 2 项 · 禁止 AI 读取`. The line is absent when nothing is locked.
+- **Each item is locked separately**, one password prompt per item.
+- Your password is **never stored**. Locally there is only a `salt` and a PBKDF2-SHA256 (600k rounds)
+  `check` value — the file alone can't be reversed into the password.
+- **Forgot it? Reset — and reset needs no password** (the key sits on your own disk). So "forget it and
+  it's gone forever" would be a lie; this README won't tell it.
+
+---
+
+## Your own data
+
+**Easiest:** drop a `.csv` into the `sources/` folder and refresh the page. No restart needed. Delete the file and the bead disappears.
+
+**Or:** right-click the canvas. Two entries at the bottom:
+
+- **`新增数据源 · CSV`** — pick a `.csv`, it becomes one library
+- **`新增数据源 · 文件夹`** — pick a folder; its **directory structure** (paths and file names only, not contents) is drawn as a tree
+
+### CSV format
+
+Three columns, header row required, **UTF-8 encoding**:
+
+```csv
+parent,name,value
+,智能硬件,
+,软件平台,
+智能硬件,结构设计,42
+智能硬件,电路板,38
+软件平台,前端,45
+软件平台,后端,52
+```
+
+- `parent` — the group this item belongs to. **Empty = top-level group**
+- `name` — label shown on the bead
+- `value` — determines bead size. Empty counts as 1
+
+Need more levels? Write a path in `parent` with `/`:
+
+```csv
+parent,name,value
+,Company,
+Company/Engineering,Backend,50
+Company/Engineering,Frontend,45
+Company/Marketing,Ads,30
+```
+
+Intermediate levels are created automatically — you don't need to declare them.
+
+See `examples/` for two ready-to-edit samples.
+
+---
+
+## Optional: read WorkBuddy sessions
+
+If you have [WorkBuddy](https://www.workbuddy.cn/) installed, this reads its session logs (`~/.workbuddy/projects/*.jsonl`) and charts your conversations and tool calls. Useful for seeing where your steps actually went.
+
+**Without WorkBuddy everything still works** — you just lose that one bead and use CSV instead.
+
+Read-only. Nothing is written, modified, or uploaded.
+
+---
+
+## FAQ
+
+**The window flashes and disappears** — Python isn't installed or isn't on PATH. Right-click `start.bat` → Edit, add a `pause` line at the end, then run again to read the error.
+
+**Blank page** — Check the terminal for errors. If the port is taken, the program auto-shifts (7788 → 7789 → …). **Use the address printed in the terminal**, not an old bookmark.
+
+**Garbled Chinese** — Your CSV isn't UTF-8. In Excel use "CSV UTF-8 (Comma delimited)".
+
+**Beads overlap** — Known limitation. Layout uses fixed placement, there's no general collision-avoidance algorithm. Splitting into smaller CSVs helps.
+
+**Can I host this for others?** Don't. It reads local files, binds to `127.0.0.1`, and has no authentication. Share the CSV instead.
+
+---
+
+## Project layout
+
+```
+raindrop-chart/
+├── live_server.py     Local server + data parsing + HTTP API
+├── ring.html          Canvas page (styles and scripts inlined)
+├── datasource.py      Data source adapters: WorkBuddy / CSV / folder tree
+├── lockbox.py         Locking: password check value + which nodes are locked (never the password)
+├── mcp_server.py      MCP interface (optional, see below)
+├── weights.py         Weight rules: how big a bead gets (tune the visuals here)
+├── data.js            Offline demo data, used when opening ring.html directly
+├── start.bat          Windows launcher (console window, shows errors)
+├── double-click-silent-start.vbs   Windows silent launcher (no window)
+├── start.sh           macOS / Linux launcher
+├── examples/          Sample CSVs
+├── sources/           Put your CSVs here (gitignored)
+└── docs/img/          Screenshots
+```
+
+- **Standard library only.** No `pip install`.
+- `ring.html` inlines all CSS/JS; the only local dependency is `data.js`.
+- Adding a data source = write a `Source` subclass and register it.
+- Version number has a single source of truth: `VERSION` in `live_server.py`.
+
+### MCP interface (optional)
+
+Lets an AI read this workflow data directly. **Not needed for viewing the chart.**
+
+Add to `~/.workbuddy/mcp.json` (adjust the path):
+
+```json
+{
+  "mcpServers": {
+    "raindrop-workflow": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["/path/to/raindrop-chart/live_server.py", "--mcp"],
+      "timeout": 30000
+    }
+  }
+}
+```
+
+Restart WorkBuddy, then find it in the connector page and click "Trust".
+
+It exposes three tools:
+
+| Tool | What it does |
+|---|---|
+| `workflow_tree` | Full workflow tree as JSON (conversation / space views), with trimming options |
+| `workflow_report` | Text reports: overview, turns, slowest steps, file lineage, library stats, search… |
+| `workflow_show` | Makes the chart jump to a given position — requires the page to be **open**, otherwise it says so plainly instead of pretending to succeed |
+
+---
+
+## Common misunderstandings
+
+**"Install it and you see charts right away"** — true for CSV sources. For WorkBuddy session data you need WorkBuddy installed with existing sessions.
+
+**"It can read my conversations"** — it reads **metadata** (when, which tool, which files), not conversation bodies.
+
+**"What can the AI do with it"** — read data and navigate the chart. It cannot edit your files, send messages, or touch your accounts.
+
+---
+
+## Privacy
+
+Your data does not leave your computer.
+
+- The server binds to `127.0.0.1` only — not reachable from other machines on your network
+- The entire codebase makes **exactly one** outbound connection: probing `127.0.0.1` to see if an instance is already running. No external domains
+- No telemetry, no accounts, no uploads
+- Session logs are opened read-only
+- Cache (`_index.json`) and imported data (`sources/`) stay local and are gitignored
+
+### What it stores locally
+
+Besides the original session files (which are WorkBuddy's own), this program generates one
+index file, `_index.json`, containing session titles, file paths, and **about 1.2 KB of body
+text per session** (used for search).
+
+| Stored | Why | Sensitivity |
+|---|---|---|
+| Session titles, timestamps | Displaying lists | Low |
+| Names of touched files | Space view | Low |
+| Body snippets (a few user prompts + assistant replies) | Body search | **Medium — may contain private text you wrote** |
+
+**Never share this file.** The packaging script (`release/build_release.py`) has `_index.json`
+in its exclusion list and re-scans the finished package to confirm it isn't there — but if you
+copy the folder by hand, delete it first.
+
+To clear the index: delete `_index.json`; it rebuilds on next start.
+
+Verify it yourself:
+
+```bash
+grep -n "urlopen" live_server.py
+```
+
+One hit, pointing at `http://127.0.0.1:%d/api/ping`.
+
+---
+
+## License
+
+[MIT](LICENSE)
+
+---
+
+## Known limitations
+
+| Issue | Status |
+|---|---|
+| Beads can overlap with many items | Fixed placement, no general collision avoidance |
+| Long names get truncated to `...` | Truncation without adaptive scaling |
+| Only CSV and WorkBuddy sessions as sources | New types require code |
+| No export | Screenshots only |
+| Chinese UI only | No i18n yet |
+| No persistent data-source dropdown | Switch sources by URL parameter, or import a CSV (which auto-switches) |
+| Search covers titles and file names only | Conversation bodies are not indexed |
+| At most 8 files kept per session | Index truncation to bound size; heavily-edited sessions may lose files |
+| Circle sizes are not strictly comparable across views | Steps scale by duration, turns by step count, libraries by volume |
+| AI-driven navigation requires the page to be open | `workflow_show` reports honestly instead of pretending |

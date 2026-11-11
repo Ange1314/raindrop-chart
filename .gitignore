@@ -1,0 +1,30 @@
+# 运行时生成的缓存与产物（都不该进版本库）
+_index.json
+当前地址.txt
+运行日志.txt
+__pycache__/
+*.pyc
+*.pyo
+
+# 用户自己导入的数据（每台机器各一份，别混进仓库）
+sources/*
+!sources/.gitkeep
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 打包产物
+dist/
+*.zip
+
+# ⚠️ 隐私兜底：以下三类东西**永远不能进版本库**。
+#    它们装着使用者本机的会话标题、文件路径、私人内容。
+#    （正式打包由 release/build_release.py 的排除清单负责，这里是双保险。）
+*.tree.json
+*.jsonl
+.env
+_lock.json

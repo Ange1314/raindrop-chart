@@ -1,0 +1,4953 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Raindrop Chart · 点与周长</title>
+<style>
+  /* ---- 主题 token：蓝（默认） ----
+     材质配方来自「天时-风格参考 iPhone透明风格」：模糊 + 增色 + 叠白 + 亮边。
+     六套主题 = :root(蓝) + 五个 html[data-theme="..."] 覆盖块（绿/米白/粉/紫/黑）。
+     任何组件都不许再写死色值，否则换主题时会剩下几块没跟着变。 */
+  :root{
+    /* ---- 六套主题的「圆面色 / 圆描边」 ----
+       右键菜单那六个色块要用的是「各套主题里雨滴长什么样」，可它必须同时
+       显示六种不同颜色 —— 直接读 --cv-dot 只能读到当前主题那一套。
+       所以在这里各存一份，下面每套主题的 --cv-dot / --cv-dot-brd 也指向
+       同一份常量。要调某套的圆面颜色，只改这里一处，主题和色块一起变。 */
+    --t-blue-face:#E4EAF4;   --t-blue-edge:rgba(146,162,190,.9);
+    --t-green-face:#E1EDE5;  --t-green-edge:rgba(139,168,149,.9);
+    --t-beige-face:#EEEBE5;  --t-beige-edge:rgba(196,192,182,.95);
+    --t-pink-face:#F7E3E9;   --t-pink-edge:rgba(198,148,161,.9);
+    --t-purple-face:#E7E1F7; --t-purple-edge:rgba(158,146,190,.9);
+    --t-dark-face:#262E3B;   --t-dark-edge:rgba(255,255,255,.24);
+
+    /* 底与字 —— 冷调：底是冷白、字是冷黑，配蓝主色才不打架 */
+    --paper:#F1F4F9;                 /* 页面底 */
+    --surface:rgba(255,255,255,.58); /* 列/卡片：半透明，让背景光晕透上来 */
+    --surface-hi:rgba(255,255,255,.62);  /* 表头，比列底实一点 */
+    --ink:#1B2029;                   /* 主文字 */
+    --muted:#6B7383;                 /* 次文字 */
+    --axis:#D3D9E4;                  /* 分割线 / 描边 */
+    --hair:#B9C1CF;                  /* 更浅的分隔符、面包屑斜线 */
+    --ghost:#A6AEBC;                 /* 占位、禁用、数字后缀 */
+    --ghost2:#98A1B0;
+    --rule:#EDF0F5;                  /* 列表行的分隔线，几乎看不见那种 */
+
+    /* 主色与语义色 */
+    --accent:#0A6CFF;                /* 蓝：比参考图的 #0071ff 略深，白字压上去才够对比 */
+    --accent-ink:#0052CC;            /* 强调文字，比主色深一档 */
+    --on-accent:#fff;                /* 压在 accent 上的字色 */
+    --danger:#D93A2B;
+    --ok:#2FBFA6;
+    --track:rgba(10,108,255,.18);    /* 滑块轨道 */
+
+    /* 玻璃材质 */
+    --panel:rgba(255,255,255,.84);         /* 顶栏控件 */
+    --panel-soft:rgba(255,255,255,.72);
+    --panel-strong:rgba(255,255,255,.93);  /* 必须挡字的浮层 */
+    --panel-solid:#fff;
+    --panel-brd:rgba(211,217,228,.95);
+    --panel-brd-soft:rgba(211,217,228,.75);
+    --glass:blur(16px) saturate(180%);
+    --glass-sm:blur(8px) saturate(180%);
+    --shadow:0 14px 38px rgba(20,30,50,.16);
+    --shadow-sm:0 10px 28px rgba(20,30,50,.12);
+    --shadow-lg:0 20px 48px rgba(20,30,50,.22);
+    /* 树图两栏专用：面积大、又是并排两块，同样浓度的阴影会显得很重，
+       所以单独一档更浅更短的。别拿 --shadow-sm 凑合。 */
+    --shadow-col:0 6px 18px rgba(20,30,50,.075);
+    --hl:inset 0 1px 0 rgba(255,255,255,.60);   /* 玻璃上沿那道亮边 */
+    --hover:rgba(10,108,255,.10);
+    --hover-soft:rgba(10,108,255,.07);
+    --hover-strong:rgba(10,108,255,.13);
+    --press:rgba(20,30,50,.07);
+
+    /* Canvas 专用：雨图的圆和线是画上去的，读不到上面的变量，单独一组 */
+    --cv-dot:var(--t-blue-face);
+    --cv-dot-hi:#CFE0FB;
+    --cv-dot2:#D9E1ED;
+    --cv-dot2-hi:#C3D8F7;
+    --cv-dot-brd:var(--t-blue-edge);
+    --cv-dot-brd2:rgba(128,146,176,.95);
+    --cv-dot-brd-hi:rgba(10,108,255,.85);
+    --cv-ink:rgba(27,32,41,.88);
+    --cv-ink2:rgba(27,32,41,.86);
+    --cv-sub:rgba(107,115,131,.95);
+    --cv-line:rgba(150,160,178,.85);
+    --cv-hl:rgba(255,255,255,.34);
+    --rgb-accent:10,108,255;         /* 涟漪和雨丝要拼动态 alpha，只能存三元组 */
+
+    /* 背景三团光的颜色。以前整条 background 写死在 body 上，
+       每加一套主题就得复制一遍那四行 radial-gradient；抽成变量后
+       换主题只改这三个值，body 只写一次。 */
+    --glow1:rgba(60,130,255,.10);
+    --glow2:rgba(120,110,255,.07);
+    --glow3:rgba(40,180,220,.07);
+
+    /* 浮层圆角：搜索框 / 状态胶囊 / 下拉 / 模式按钮组共用同一个值，
+       免得各写各的、并排时能看出不齐。16 已接近这些元素半高，两端接成胶囊。 */
+    --r-panel:16px;
+    /* 黄金比。目前只用在一处：树图版式的上下留白（上 : 下 = 1 : φ）。
+       改这一个数，底部留白跟着变，不用翻两处。 */
+    --phi:1.618;
+  }
+
+  /* ---- 暗色琉璃 ----
+     不是把亮色反相。暗色面板几乎透明，轮廓全靠那 1px 亮边给出，
+     所以描边和 --hl 在这里更不能省；主色要提亮一档，否则压在深底上发脏。 */
+  html[data-theme="dark"]{
+    --paper:#0B0E13;
+    --surface:rgba(30,36,47,.62);
+    --surface-hi:rgba(40,48,62,.55);
+    --ink:#E8EBF1;
+    --muted:#8D95A1;
+    --axis:rgba(255,255,255,.13);
+    --hair:rgba(255,255,255,.30);
+    --ghost:rgba(255,255,255,.38);
+    --ghost2:rgba(255,255,255,.28);
+    --rule:rgba(255,255,255,.07);
+
+    --accent:#4FB8C2;
+    --accent-ink:#8FE3E8;
+    --on-accent:#06181C;             /* 亮青上当白字看不清，压深字 */
+    --danger:#FF7A5E;
+    --ok:#7FE0D2;
+    --track:rgba(79,184,194,.24);
+
+    --panel:rgba(38,45,58,.70);
+    --panel-soft:rgba(38,45,58,.58);
+    --panel-strong:rgba(26,32,42,.92);
+    --panel-solid:#161B24;
+    --panel-brd:rgba(255,255,255,.15);
+    --panel-brd-soft:rgba(255,255,255,.10);
+    --glass:blur(20px) saturate(170%);
+    --glass-sm:blur(10px) saturate(170%);
+    --shadow:0 16px 40px rgba(0,0,0,.62);
+    --shadow-sm:0 10px 26px rgba(0,0,0,.52);
+    --shadow-lg:0 22px 52px rgba(0,0,0,.72);
+    --shadow-col:0 6px 20px rgba(0,0,0,.36);
+    --hl:inset 0 1px 0 rgba(255,255,255,.18);
+    --hover:rgba(79,184,194,.16);
+    --hover-soft:rgba(79,184,194,.12);
+    --hover-strong:rgba(79,184,194,.20);
+    --press:rgba(255,255,255,.08);
+
+    --cv-dot:var(--t-dark-face);
+    --cv-dot-hi:#2E4050;
+    --cv-dot2:#2B3341;
+    --cv-dot2-hi:#354555;
+    --cv-dot-brd:var(--t-dark-edge);
+    --cv-dot-brd2:rgba(255,255,255,.20);
+    --cv-dot-brd-hi:rgba(79,184,194,.85);
+    --cv-ink:rgba(232,235,241,.92);
+    --cv-ink2:rgba(232,235,241,.86);
+    --cv-sub:rgba(160,168,180,.92);
+    --cv-line:rgba(255,255,255,.22);
+    --cv-hl:rgba(255,255,255,.10);
+    --rgb-accent:79,184,194;
+
+    --glow1:rgba(43,92,255,.15);
+    --glow2:rgba(122,60,255,.12);
+    --glow3:rgba(0,194,209,.10);
+  }
+
+  /* ================= 其余四套主题 =================
+     只有亮色系这一层在变：底面、字色、主色、Canvas 圆点色。
+     玻璃材质（--glass / --shadow / --hl / --panel-*）在亮色系里通用，
+     统一沿用 :root，不在这里重复 —— 重复一次就多一处要同步维护。
+     每套都必须带齐 --glow1~3，否则会残留上一套的光斑，看着像没换干净。 */
+
+  /* ---- 绿：草木 ---- */
+  html[data-theme="green"]{
+    --paper:#EFF4F0;
+    --ink:#17211A;
+    --muted:#5E6E63;
+    --axis:#CDDCD2;
+    --hair:#B2C3B7;
+    --ghost:#A1B1A5;
+    --ghost2:#93A498;
+    --rule:#E8F0EA;
+    /* 面板描边跟着底走，不然暖绿底上一条冷灰边会显脏 */
+    --panel-brd:rgba(205,220,210,.95);
+    --panel-brd-soft:rgba(205,220,210,.75);
+
+    --accent:#12855A;
+    --accent-ink:#0A6642;
+    --on-accent:#fff;
+    --track:rgba(18,133,90,.18);
+    --hover:rgba(18,133,90,.10);
+    --hover-soft:rgba(18,133,90,.07);
+    --hover-strong:rgba(18,133,90,.13);
+
+    --cv-dot:var(--t-green-face);
+    --cv-dot-hi:#CEE6D6;
+    --cv-dot2:#D7E5DC;
+    --cv-dot2-hi:#C1DBC9;
+    --cv-dot-brd:var(--t-green-edge);
+    --cv-dot-brd2:rgba(120,152,130,.95);
+    --cv-dot-brd-hi:rgba(18,133,90,.85);
+    --cv-ink:rgba(23,33,26,.88);
+    --cv-ink2:rgba(23,33,26,.86);
+    --cv-sub:rgba(94,110,99,.95);
+    --cv-line:rgba(148,170,156,.85);
+    --cv-hl:rgba(255,255,255,.34);
+    --rgb-accent:18,133,90;
+
+    --glow1:rgba(30,170,110,.11);
+    --glow2:rgba(120,200,150,.07);
+    --glow3:rgba(40,180,190,.06);
+  }
+
+  /* ---- 米白：最初那版纸色青（其余主题都是后来从蓝改出来的） ---- */
+  html[data-theme="beige"]{
+    --paper:#F6F4F0;
+    --ink:#33312D;
+    --muted:#8A867C;
+    --axis:#D8D4CB;
+    --hair:#C4C0B6;
+    --ghost:#ADA89D;
+    --ghost2:#A09B90;
+    --rule:#EFECE5;
+    --panel-brd:rgba(216,212,203,.95);
+    --panel-brd-soft:rgba(216,212,203,.75);
+
+    --accent:#2E7D8A;
+    --accent-ink:#0F6E56;
+    --on-accent:#fff;
+    --track:rgba(46,125,138,.18);
+    --hover:rgba(46,125,138,.10);
+    --hover-soft:rgba(46,125,138,.07);
+    --hover-strong:rgba(46,125,138,.13);
+
+    --cv-dot:var(--t-beige-face);
+    --cv-dot-hi:#DFEDEA;
+    --cv-dot2:#DAD6CE;
+    --cv-dot2-hi:#D2DEDA;
+    --cv-dot-brd:var(--t-beige-edge);
+    --cv-dot-brd2:rgba(158,153,143,.95);
+    --cv-dot-brd-hi:rgba(46,125,138,.85);
+    --cv-ink:rgba(51,49,45,.88);
+    --cv-ink2:rgba(51,49,45,.86);
+    --cv-sub:rgba(138,134,124,.95);
+    --cv-line:rgba(180,175,163,.85);
+    --cv-hl:rgba(255,255,255,.34);
+    --rgb-accent:46,125,138;
+
+    --glow1:rgba(60,150,160,.09);
+    --glow2:rgba(205,180,140,.10);
+    --glow3:rgba(90,140,120,.06);
+  }
+
+  /* ---- 粉：樱 ---- */
+  html[data-theme="pink"]{
+    --paper:#F9F0F2;
+    --ink:#291D21;
+    --muted:#7D6870;
+    --axis:#E7D2D8;
+    --hair:#D6BAC1;
+    --ghost:#C1A9B0;
+    --ghost2:#B49CA3;
+    --rule:#F6E9ED;
+    --panel-brd:rgba(231,210,216,.95);
+    --panel-brd-soft:rgba(231,210,216,.75);
+
+    --accent:#CF3A72;
+    --accent-ink:#A62558;
+    --on-accent:#fff;
+    --track:rgba(207,58,114,.18);
+    --hover:rgba(207,58,114,.10);
+    --hover-soft:rgba(207,58,114,.07);
+    --hover-strong:rgba(207,58,114,.13);
+
+    --cv-dot:var(--t-pink-face);
+    --cv-dot-hi:#F5D1DD;
+    --cv-dot2:#EFD5DD;
+    --cv-dot2-hi:#EAC1CD;
+    --cv-dot-brd:var(--t-pink-edge);
+    --cv-dot-brd2:rgba(180,130,145,.95);
+    --cv-dot-brd-hi:rgba(207,58,114,.85);
+    --cv-ink:rgba(41,29,33,.88);
+    --cv-ink2:rgba(41,29,33,.86);
+    --cv-sub:rgba(125,104,112,.95);
+    --cv-line:rgba(192,162,172,.85);
+    --cv-hl:rgba(255,255,255,.34);
+    --rgb-accent:207,58,114;
+
+    --glow1:rgba(240,90,140,.10);
+    --glow2:rgba(180,120,255,.07);
+    --glow3:rgba(255,170,120,.07);
+  }
+
+  /* ---- 紫：藕 ---- */
+  html[data-theme="purple"]{
+    --paper:#F2EFFA;
+    --ink:#241E33;
+    --muted:#6D6583;
+    --axis:#DAD2EB;
+    --hair:#C4B8D9;
+    --ghost:#AEA3C3;
+    --ghost2:#A196B5;
+    --rule:#EEE9F6;
+    --panel-brd:rgba(218,210,235,.95);
+    --panel-brd-soft:rgba(218,210,235,.75);
+
+    --accent:#6C4BD1;
+    --accent-ink:#5433B8;
+    --on-accent:#fff;
+    --track:rgba(108,75,209,.18);
+    --hover:rgba(108,75,209,.10);
+    --hover-soft:rgba(108,75,209,.07);
+    --hover-strong:rgba(108,75,209,.13);
+
+    --cv-dot:var(--t-purple-face);
+    --cv-dot-hi:#DBD0F2;
+    --cv-dot2:#DED7EE;
+    --cv-dot2-hi:#CFC5E9;
+    --cv-dot-brd:var(--t-purple-edge);
+    --cv-dot-brd2:rgba(140,126,176,.95);
+    --cv-dot-brd-hi:rgba(108,75,209,.85);
+    --cv-ink:rgba(36,30,51,.88);
+    --cv-ink2:rgba(36,30,51,.86);
+    --cv-sub:rgba(109,101,131,.95);
+    --cv-line:rgba(163,153,188,.85);
+    --cv-hl:rgba(255,255,255,.34);
+    --rgb-accent:108,75,209;
+
+    --glow1:rgba(110,80,255,.11);
+    --glow2:rgba(180,110,255,.07);
+    --glow3:rgba(60,140,255,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  /* 背景不是纯色，是几团低饱和光斑 —— 玻璃得有东西可透，纯色底上做玻璃就是灰纸。
+     光斑极淡（alpha .09~.10），只在纸色上带一点点冷暖，不抢内容。 */
+  body{
+    background:
+      radial-gradient(58% 48% at 12% 16%, var(--glow1), transparent 72%),
+      radial-gradient(52% 44% at 88% 26%, var(--glow2), transparent 72%),
+      radial-gradient(58% 52% at 64% 92%, var(--glow3), transparent 72%),
+      var(--paper);
+    background-attachment:fixed;
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    overflow:hidden;-webkit-font-smoothing:antialiased;
+    transition:background-color .35s ease,color .35s ease;
+  }
+  /* ---- 换主题：整页淡入 ----
+     底色和文字色由 body 上那条 .35s transition 负责（见 body 规则）。
+     但菜单 / 胶囊 / 搜索框 / 列这些浮层自己没有过渡，底色在渐变、它们
+     「啪」地跳变会显得不齐。切主题时给 html 挂 .theming，把这几个补上过渡；
+     只挂 420ms 就摘掉 —— 平时不留全局过渡，免得雨图高频重绘被无谓的过渡拖累。 */
+  html.theming #modes,html.theming #live,html.theming #addr,html.theming #qlist,
+  html.theming #ctx,html.theming #ctx i,html.theming #ctx hr,
+  html.theming #ctx .sw,html.theming #tune,html.theming #tip,
+  html.theming .tcol{
+    transition:background-color .35s ease,color .35s ease,border-color .35s ease,
+               box-shadow .35s ease;
+  }
+  @media (prefers-reduced-motion:reduce){
+    body,html.theming #modes,html.theming #live,html.theming #addr,html.theming #qlist,
+    html.theming #ctx,html.theming #ctx i,html.theming #ctx hr,
+    html.theming #ctx .sw,html.theming #tune,html.theming #tip,
+    html.theming .tcol{transition:none}
+  }
+
+  #cv{display:block;width:100vw;height:100vh;touch-action:none;cursor:default}
+  /* ---- 正上方的搜索框：静息显示路径，点击变输入 ---- */
+  #addr{
+    /* top 20 = 与两个胶囊同一条基线。高度都收到 30 之后，三者中线才对得齐
+       （原来搜索框 34 高踩 18，中心也是 35，是另一套算法） */
+    position:fixed;top:20px;left:50%;transform:translateX(-50%);
+    /* 两侧各留 280：左边状态胶囊文案最长时能到 260 上下，原来留 220 会贴上去 */
+    width:420px;max-width:calc(100vw - 560px);min-width:200px;height:30px;
+    z-index:31;display:none;align-items:center;gap:7px;padding:0 12px;
+    background:var(--panel);backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
+    /* 两端全圆：radius 拉到大于半高，浏览器会钳成 17（34 的一半），两端成正半圆。
+       用 999 而不是写死 17 —— 以后改高度也不用回来改这里。 */
+    border:1px solid var(--panel-brd);border-radius:999px;
+    box-shadow:var(--hl);
+    font-size:12px;color:var(--muted);user-select:none;
+  }
+  #addr.on{display:flex}
+  #addr.focus{border-color:var(--accent);background:var(--panel-solid);user-select:text}
+  /* 左端那一格：放大镜和 × 叠在同一位置，同一时刻只露一个。
+     静止时放大镜＝「这里能搜」；一旦进入输入就换成 ×＝「清空」。
+     两者做成同格绝对定位，切换时不会让后面的文字左右挪位。 */
+  #addr .ico{position:relative;flex:0 0 auto;width:14px;height:14px}
+  #addr .mag{
+    position:absolute;left:1px;top:1px;
+    width:12px;height:12px;opacity:.5;
+  }
+  #crumb{
+    flex:1 1 auto;min-width:0;
+    font-size:12px;color:var(--muted);
+    display:flex;align-items:center;gap:2px;
+    overflow:hidden;white-space:nowrap;cursor:text;
+  }
+  #addr.focus #crumb{display:none}
+  #crumb b{
+    font-weight:500;color:var(--ink);cursor:pointer;
+    padding:2px 4px;border-radius:4px;transition:.15s;
+    overflow:hidden;text-overflow:ellipsis;max-width:170px;
+  }
+  #crumb b:hover{background:var(--hover);color:var(--accent-ink)}
+  #crumb i{font-style:normal;color:var(--hair)}
+  #q{
+    display:none;flex:1 1 auto;min-width:0;height:26px;
+    border:none;outline:none;background:none;
+    font:12px/1 system-ui,-apple-system,"PingFang SC",sans-serif;color:var(--ink);
+  }
+  #addr.focus #q{display:block}
+  #q::placeholder{color:var(--ghost)}
+  /* × 只在输入态出现，且只负责“全部删除” —— 点别处不会清空 */
+  /* × 和放大镜同格（见上面的 .ico）。只在输入态出现，负责「全部删除」 */
+  #qx{
+    display:none;
+    position:absolute;left:0;top:0;
+    width:14px;height:14px;border-radius:50%;
+    align-items:center;justify-content:center;
+    font-size:14px;line-height:1;color:var(--ghost2);cursor:pointer;
+  }
+  #addr.focus #qx{display:flex}
+  #addr.focus .mag{display:none}
+  #qx:hover{background:var(--press);color:var(--ink)}
+  #qlist{
+    position:absolute;top:34px;left:0;right:0;max-height:320px;overflow:auto;
+    display:none;background:var(--panel-solid);border:1px solid var(--panel-brd);border-radius:var(--r-panel);
+    box-shadow:var(--shadow-sm);z-index:32;
+  }
+  #qlist.on{display:block}
+  #qlist div{padding:7px 11px;font-size:11.5px;cursor:pointer;line-height:1.5;
+    border-bottom:1px solid var(--rule);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #qlist div:last-child{border-bottom:none}
+  #qlist div:hover{background:var(--hover-soft)}
+  #qlist u{text-decoration:none;color:var(--accent-ink)}
+  #qlist s{text-decoration:none;color:var(--ghost);font-size:10.5px;margin-left:6px}
+  #qlist em{font-style:normal;color:var(--muted);padding:8px 11px;font-size:11px;display:block}
+  /* 正文命中的上下文片段：最多两行，超出打点 —— 搜索框只有一列窄条，
+     片段要是铺开三行，一次就只能看见一条结果，反而更难挑。 */
+  #qlist p.qsnip{margin:2px 0 0;padding:0;font-size:10.5px;color:var(--ghost);
+    line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden}
+  #qlist .mono{font-family:ui-monospace,Consolas,monospace}
+  /* ---- 悬浮提示：与右键菜单同一套材质（白玻璃 / 细边 / 大阴影 / 同心圆角） ---- */
+  #tip{
+    position:fixed;left:0;top:0;z-index:55;pointer-events:none;opacity:0;
+    transform:translate(-50%,-150%);
+    /* 同心：外 16 − 边框 1 − 内边距 5 = 内 10，和 #ctx 完全一致 */
+    --ctx-r:var(--r-panel);
+    --ctx-pad:5px;
+    background:var(--panel-strong);backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
+    border:1px solid var(--panel-brd);
+    border-radius:var(--ctx-r);padding:var(--ctx-pad);
+    box-shadow:var(--hl),var(--shadow);
+    color:var(--ink);
+    font-size:11.5px;line-height:1.5;white-space:nowrap;
+    /* 给个下限：只有一行的卡片不会窄成一条，悬停移动时宽度不会一路缩窄 */
+    min-width:128px;max-width:300px;
+    transition:opacity .12s ease;
+  }
+  #tip hr{
+    border:none;border-top:1px solid var(--panel-brd-soft);
+    margin:4px 6px;
+  }
+  /* 标题行：比菜单项略大一号，但不加粗到抢眼 */
+  #tip .th{
+    font-weight:500;font-size:12px;padding:2px 12px 0;
+    overflow:hidden;text-overflow:ellipsis;max-width:264px;
+  }
+  /* 副标题缺席时（末端节点没有量可说），标题自己撑满，补一点下边距 */
+  #tip .th:last-child{padding-bottom:4px}
+  /* 副标题行：跟菜单项的 <s> 同级灰度，读起来是“注释”而不是“内容” */
+  #tip .ts{
+    color:var(--muted);font-size:10.5px;padding:0 12px 3px;
+    overflow:hidden;text-overflow:ellipsis;max-width:264px;
+  }
+  /* 前三个会话：沿用菜单「左边名字 / 右边数字」的行式，只去掉悬停与手型 */
+  #tip .tr{
+    display:flex;align-items:center;gap:8px;
+    padding:4px 12px;font-size:11px;
+    border-radius:calc(var(--ctx-r) - var(--ctx-pad) - 1px);
+  }
+  #tip .tr i{
+    font-style:normal;width:9px;flex:0 0 auto;text-align:right;
+    color:var(--ghost);font-size:10px;
+  }
+  #tip .tr em{
+    font-style:normal;flex:1 1 auto;min-width:0;max-width:196px;
+    overflow:hidden;text-overflow:ellipsis;
+  }
+  #tip .tr s{
+    text-decoration:none;flex:0 0 auto;
+    color:var(--ghost);font-size:10.5px;
+  }
+  /* ---- 右键菜单 ----
+     #ctx2 是它的二级菜单（子项浮层）。两者共用同一套材质、内边距与圆角，
+     只有位置和 z-index 不同：二级必须压在父菜单之上，否则会被父菜单的
+     阴影糊住一条边。 */
+  #ctx,#ctx2{
+    position:fixed;z-index:60;display:none;min-width:176px;
+    background:var(--panel-strong);backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
+    border:1px solid var(--panel-brd);
+    /* 同心：外 16 − 边框 1 − 内边距 5 = 内 10 */
+    --ctx-r:var(--r-panel);
+    --ctx-pad:5px;
+    border-radius:var(--ctx-r);padding:var(--ctx-pad);
+    box-shadow:var(--hl),var(--shadow);
+    font-size:11.5px;color:var(--ink);user-select:none;
+  }
+  #ctx.on{display:block}
+  #ctx2{z-index:61}
+  #ctx2.on{display:block}
+  #ctx i,#ctx2 i{
+    display:flex;align-items:center;justify-content:space-between;gap:18px;
+    padding:7px 12px;white-space:nowrap;
+    border-radius:calc(var(--ctx-r) - var(--ctx-pad) - 1px);
+    font-style:normal;cursor:pointer;transition:background .12s;
+  }
+  #ctx i:hover,#ctx2 i:hover{background:var(--hover)}
+  #ctx i.off,#ctx2 i.off{color:var(--ghost);cursor:default}
+  #ctx i.off:hover,#ctx2 i.off:hover{background:transparent}
+  #ctx i s,#ctx2 i s{text-decoration:none;color:var(--ghost);font-size:10.5px;font-weight:400}
+  /* 有二级菜单的项：右端一个细箭头，和系统菜单同一个位置、同一个方向。
+     用边框画（而不是字符 ›），字号变了也不会跟着变粗细。 */
+  #ctx i.sub::after{
+    content:'';flex:0 0 auto;
+    width:5px;height:5px;margin-left:2px;
+    border-right:1.4px solid var(--ghost2);
+    border-bottom:1.4px solid var(--ghost2);
+    transform:rotate(-45deg);
+  }
+  /* 二级展开时父项保持高亮，指出「这一层是从哪儿来的」 */
+  #ctx i.sub.open{background:var(--hover)}
+  #ctx i em{
+    font-style:normal;width:6px;height:6px;border-radius:50%;
+    background:var(--accent);flex:0 0 auto;
+  }
+  /* 分区横线属于描边体系，直接引用面板描边色 —— 以前用 soft 那一档，
+     在深底上几乎看不见分区，菜单读起来是一整块。 */
+  #ctx hr{
+    border:none;border-top:1px solid var(--panel-brd);
+    margin:4px 6px;
+  }
+  /* 主题：六个色块。比文字三连好认 —— 「亮色/暗色」这种词在不同人心里
+     指的是不同配色，色块不会读错。块本身的颜色写在内联 --sw 上（见 themeRow），
+     不参与主题变量，所以无论当前是哪套主题，六个块看起来都是同样六个颜色。 */
+  #ctx .cxrow{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:12px;padding:5px 12px 6px;
+  }
+  #ctx .cxrow>span{color:var(--ink);font-size:11.5px}
+  #ctx .sww{display:flex;align-items:center;gap:10px;padding:2px 5px}
+  /* 色块 = 该主题里的一颗雨滴：面用 --cv-dot、边用 --cv-dot-brd，
+     形状取圆角矩形，好和上下那些文字菜单项区分开。
+     圆角 6 是按 18px 块的手感定的 —— 全局的 --r-panel(16) 在这个尺寸上
+     就是半个圆，和「圆面」本来的圆形没区别，所以按比例收到 1/3 档。 */
+  #ctx .sw{
+    display:block;flex:0 0 auto;
+    width:18px;height:18px;padding:0;
+    border-radius:6px;
+    background:var(--sw-face);
+    border:1px solid var(--sw-edge);
+    /* 上沿一道高光，和雨滴圆是同一套玻璃语言；黑块在深色面板上
+       本来就只剩轮廓，这道光让它还有个形体，不至于是个洞。 */
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.45);
+    cursor:pointer;
+    transition:transform .14s ease,outline-color .16s ease;
+  }
+  /* 每块固定取自己那套的圆面色 / 圆描边，不跟随当前主题 */
+  #ctx .sw[data-theme="blue"]  {--sw-face:var(--t-blue-face);  --sw-edge:var(--t-blue-edge)}
+  #ctx .sw[data-theme="green"] {--sw-face:var(--t-green-face); --sw-edge:var(--t-green-edge)}
+  #ctx .sw[data-theme="beige"] {--sw-face:var(--t-beige-face); --sw-edge:var(--t-beige-edge)}
+  #ctx .sw[data-theme="pink"]  {--sw-face:var(--t-pink-face);  --sw-edge:var(--t-pink-edge)}
+  #ctx .sw[data-theme="purple"]{--sw-face:var(--t-purple-face);--sw-edge:var(--t-purple-edge)}
+  #ctx .sw[data-theme="dark"]  {--sw-face:var(--t-dark-face);  --sw-edge:var(--t-dark-edge)}
+  #ctx .sw:hover{transform:scale(1.1)}
+  /* 选中环用 --ink：它跟着当前主题走，六种底上都有足够对比。
+     若用块自己的浅色做环，在浅底上等于没有选中态。 */
+  #ctx .sw.on{
+    transform:scale(1.1);
+    outline:2px solid var(--ink);
+    outline-offset:2px;
+  }
+  /* ---- 调参面板：调的是树图底部那层水面的手感 ---- */
+  #tune{
+    position:fixed;z-index:58;display:none;
+    --ctx-r:var(--r-panel);
+    --ctx-pad:5px;
+    width:272px;padding:var(--ctx-pad);
+    background:var(--panel-strong);backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
+    border:1px solid var(--panel-brd);
+    border-radius:var(--ctx-r);
+    box-shadow:var(--hl),var(--shadow);
+    font-size:11.5px;color:var(--ink);user-select:none;
+  }
+  #tune.on{display:block}
+  #tune .tth{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    /* 上下 6/6 对称：原来 5/7 让标题和 × 都偏上，视觉重心飘 */
+    font-weight:500;font-size:12px;padding:6px 12px;
+    border-bottom:1px solid var(--panel-brd-soft);margin-bottom:4px;
+    cursor:move;                     /* 表头是拖动把手，光标要说明这件事 */
+  }
+  /* 表头右边的 ×：不保存退出。它压在拖动把手上，所以要单独一套 hover */
+  #tune .tth b{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:24px;height:24px;border-radius:7px;
+    font-weight:400;font-size:15px;line-height:1;color:var(--ghost2);
+    cursor:pointer;transition:background .14s,color .14s;
+  }
+  #tune .tth b:hover{color:var(--ink);background:var(--press)}
+  #tune.drag{box-shadow:var(--hl),var(--shadow-lg)}
+  /* 确定是主操作，给它主色；恢复默认保持次要 */
+  #tune .tr{
+    display:grid;grid-template-columns:40px 1fr 46px;
+    align-items:center;gap:10px;padding:6px 12px;
+  }
+  #tune .tr label{color:var(--muted);font-size:11px}
+  #tune .tr b{font-weight:500;text-align:right;font-variant-numeric:tabular-nums;font-size:11px}
+  #tune input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:3px;
+    border-radius:2px;background:var(--track);outline:none;
+  }
+  #tune input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+    background:var(--accent);cursor:pointer;transition:transform .12s;
+  }
+  #tune input[type=range]:active::-webkit-slider-thumb{transform:scale(1.18)}
+  /* 底部按钮按 macOS 对话框的排法：
+     次要/重置靠左、主操作靠右，两者拉到两端，中间留空 —— 不并排挤在一侧。
+     控件本身用 HIG 的尺寸：高 26、左右内边距 12、圆角 8。 */
+  #tune .tfoot{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    /* 左右下都是 10：加上面板自身的 5px 内边距和 1px 边框，按钮到三条边都是 16px。
+       注意代价：上面的表格行左右是 12，所以底栏比它们多伸出 2px，
+       「恢复默认」的块左沿会落在 16，比标签文字（18）靠外 2px。
+       这是 16 这个数带来的必然结果，二者不可兼得。 */
+    padding:8px 10px 10px;margin-top:3px;
+    border-top:1px solid var(--panel-brd-soft);
+  }
+  #tune .tfoot b{
+    display:inline-flex;align-items:center;justify-content:center;
+    height:26px;padding:0 12px;border-radius:8px;
+    font-weight:500;font-size:11px;color:var(--muted);cursor:pointer;
+    /* 次要也给它一个形体：常驻一层很淡的主色底。
+       全透明的话，左边轻得像个标签、右边是个实心块，两端重量对不上。 */
+    background:var(--hover-soft);
+    transition:background .14s,color .14s;
+  }
+  #tune .tfoot b:hover{color:var(--ink);background:var(--hover)}
+  /* 左右两个按钮到面板边缘都是 18px —— 对称靠的是**块**的外沿，
+     所以这里不能再让它探出去（之前 -6px 是把块推到 12 换文字共线的）。
+     代价：文字从 18 退到 24，比上面的标签右缩 6px。
+     6 是按钮内边距能做到的最小值（再小字就贴到块边上了），
+     这点错位在 272 宽的面板上基本看不出来，而左右各 18 的对称是整块能看出来的。 */
+  #tune .tfoot b[data-t="reset"]{padding:0 6px}
+  /* 确认是默认按钮：实心主色 + 回车可直接触发，和 macOS 那套一致 */
+  #tune .tfoot b[data-t="ok"]{color:var(--on-accent);background:var(--accent)}
+  #tune .tfoot b[data-t="ok"]:hover{color:var(--on-accent);background:var(--accent-ink)}
+  #modes{
+    /* 同心圆角（Apple HIG 的 concentric radius）：
+         内圆角 = 外圆角 − 内容到外沿的距离（border + padding）
+       这里 16 − 1 − 3 = 12，内外两个圆角的圆心才落在同一点，
+       看着是「一个整体挖出来的槽」，而不是「一个大圆角里套了几个小圆角」。
+       16 已经接近容器半高，两个圆角会在中间接上，形成胶囊端。 */
+    --md-r:var(--r-panel);   /* 跟搜索框、状态胶囊用同一个外圆角 */
+    --md-pad:3px;
+    position:fixed;right:24px;z-index:30;
+    display:none;gap:2px;
+    background:var(--panel-soft);backdrop-filter:var(--glass-sm);-webkit-backdrop-filter:var(--glass-sm);
+    border:1px solid var(--panel-brd);
+    box-shadow:var(--hl);
+    padding:var(--md-pad);border-radius:var(--md-r);
+    user-select:none;
+  }
+  #modes{top:20px}
+  #modes.on{display:flex}
+  #modes b{
+    position:relative;z-index:1;
+    font-weight:500;font-size:11px;color:var(--muted);cursor:pointer;
+    padding:4px 10px;border-radius:calc(var(--md-r) - var(--md-pad) - 1px);
+    transition:color .22s;
+  }
+  #modes b:hover{color:var(--ink)}
+  #modes b.on{color:var(--on-accent)}
+  /* 选中块的底色改成一块会滑动的「水滴」：
+     cubic-bezier 后段过冲，落位时轻轻回弹一下，不是硬切。
+     用 left 而不是 transform —— 因为定位必须每次实时算（见 movePill），
+     transform 在过渡中会被 getBoundingClientRect 读到，量出来的是动画中间值。 */
+  #modes .pill{
+    position:absolute;top:3px;bottom:3px;left:0;width:0;z-index:0;
+    border-radius:calc(var(--md-r) - var(--md-pad) - 1px);
+    background:var(--accent);pointer-events:none;
+    transition:left .42s cubic-bezier(.34,1.56,.64,1),
+               width .42s cubic-bezier(.34,1.56,.64,1);
+  }
+  /* 苹果的圆角不是纯圆弧，是连续曲率（squircle）—— 拐角过渡更平缓。
+     支持的浏览器自动启用，不支持的退回普通圆角，不影响任何布局和交互。
+     搜索框 #addr 不在这条里：它要的是两端全圆（radius 拉到半高），
+     而 squircle 会把胶囊端压成略方的超椭圆，反倒不是正圆。 */
+  @supports (corner-shape:squircle){
+    #modes,#modes b,#modes .pill,#live,#qlist,.tcol{corner-shape:squircle}
+    #addr{corner-shape:round}
+  }
+  #live{
+    /* 层级必须显式写：树图容器 #treewrap 铺满全屏且不透明，
+       不写这一条，胶囊在树图模式下会被整块盖住（雨图下靠 DOM 顺序反而看得见）。 */
+    position:fixed;top:20px;left:24px;z-index:30;
+    display:none;align-items:center;gap:8px;
+    font-size:11px;color:var(--muted);
+    background:var(--panel-soft);backdrop-filter:var(--glass-sm);-webkit-backdrop-filter:var(--glass-sm);
+    border:1px solid var(--panel-brd);
+    box-shadow:var(--hl);
+    padding:7px 14px;border-radius:var(--r-panel);
+    font-variant-numeric:tabular-nums;user-select:none;
+  }
+  /* 胶囊里不再放「＋」：新增数据源只留右键菜单一个入口。
+     一个动作两个入口、两个入口行为还不一样（直接弹文件框 / 先问文件和文件夹），
+     是这套界面里最容易让人点错的地方。 */
+  #live.on{display:flex}
+  #live .dot{
+    width:6px;height:6px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 0 0 rgba(var(--rgb-accent),.55);
+    animation:pulse 2s infinite;
+  }
+  #live.stale .dot{background:var(--danger);animation:none}
+  #live.off .dot{background:var(--ghost);animation:none}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(var(--rgb-accent),.5)}
+    70%{box-shadow:0 0 0 7px rgba(var(--rgb-accent),0)}
+    100%{box-shadow:0 0 0 0 rgba(var(--rgb-accent),0)}
+  }
+  #live b{font-weight:500;color:var(--ink)}
+  #live s{text-decoration:none;color:var(--hair)}
+  /* ---- 双树对照视图 ----
+     版式取手抄本 / 早期印本（Gutenberg 圣经那一路，Tschichold 归纳成 2:3:4:6）的规矩：
+     版心居中、左右留白完全相等，上下留白不等且下边距最宽。
+     这里把上下收成黄金比：上留白随窗口在 68~96 之间浮动，下留白恒为它的 1.618 倍。
+     下留白更宽，是因为视觉重心天然偏上 —— 底部多留一点，整块才「坐」得住。 */
+  #treewrap{
+    position:fixed;inset:0;z-index:20;display:none;
+    /* 不铺自己的底色：body 那几团光斑要从两列背后透出来，玻璃才有东西可透 */
+    /* 上留白跟着窗口高度走：矮窗不压缩内容，高窗也不会空太多 */
+    --tw-top:clamp(68px, 7vh, 96px);
+    padding:var(--tw-top) 22px calc(var(--tw-top) * var(--phi));gap:14px;
+    justify-content:center;          /* 超宽屏时两列居中，两侧留白自动等分 */
+    font-size:12px;color:var(--ink);
+  }
+  #treewrap.on{display:flex}
+
+  /* ---- 窄屏顶栏：一行三块 → 两行 ----
+     宽屏是「状态胶囊 — 搜索框 — 模式胶囊」一行排开，靠 #addr 的
+     max-width 在两侧各让出一块位。窗口一窄，这条护栏被压到底，
+     三块就叠在一起了。
+     所以窄屏不硬挤，直接换版式：搜索框独占一行、左右各留 14 横贯整幅，
+     两个胶囊下移一行 —— 上「找」下「看」，比三个都缩窄好读。 */
+  /* 断点 960 不是拍的：状态胶囊实测约 230 宽，右沿到 254；
+     搜索框居中要左沿 > 254，即窗口得大于 928，留点余量取 960。 */
+  @media (max-width:960px){
+    #addr{
+      top:14px;left:14px;right:14px;
+      width:auto;max-width:none;min-width:0;
+      transform:none;           /* 居中那条 translate 必须撤掉，否则整条右移半个屏幕 */
+    }
+    #live{top:58px;left:14px}
+    #modes{top:58px;right:14px}
+    /* 顶栏长高了约 40，树图的上留白要跟着让，否则第一行会被压在胶囊底下 */
+    #treewrap{--tw-top:110px}
+  }
+  /* 底部水面：横贯整个视口宽度，只占下留白那一条，不压到两列。
+     用 fixed 而不是 absolute —— absolute 的 100% 只到 padding box，
+     左右各会缺 22px 的边距；fixed 的 100% 是视口宽，两端齐边。
+     width 必须显式写：canvas 是替换元素，固有宽度是 attribute 里的 300，
+     只给 left/right 它不会被拉伸，水面会缩成左下角一小块。 */
+  /* 雨丝从屏幕顶部落到水面，所以画布要盖满整页，不再只是底部那一条。
+     z-index 25：压在两边列表之上（雨丝是前景），但低于顶栏(30)和菜单(60)。 */
+  #rip{
+    position:fixed;inset:0;
+    width:100%;height:100%;
+    pointer-events:none;z-index:25;
+  }
+  /* 两栏严格等宽 —— 左右对称是这套版式的前提。
+     1.618 只用在留白节奏上，不再拿来分栏：分栏一不对称，「对照」这件事就不成立了。
+     max-width 是给超宽屏的护栏：两列各封顶 860，居中，不至于拉成两条长纸带。 */
+  .tcol{
+    flex:1 1 0;min-width:0;max-width:860px;
+    display:flex;flex-direction:column;
+    background:var(--surface);
+    backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
+    border:1px solid var(--panel-brd);border-radius:var(--r-panel);overflow:hidden;
+    box-shadow:var(--hl),var(--shadow-col);
+  }
+  .thead{
+    padding:9px 13px;border-bottom:1px solid var(--axis);
+    /* 不用 space-between：表头现在有第三项（锁定统计），
+       均分会把「N 个库」挤到中间。改成标题吃掉剩余空间，右边几项自然贴右 */
+    display:flex;justify-content:flex-start;align-items:baseline;gap:8px;
+    background:var(--surface-hi);
+    white-space:nowrap;                 /* 表头也不许换行，否则两列高度不一致 */
+  }
+  .thead b{font-weight:500;font-size:12px;color:var(--ink);margin-right:auto}
+  .thead span{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tbody{flex:1;overflow:auto;padding:7px 5px 24px}
+  .trow{
+    display:flex;align-items:center;gap:5px;
+    padding:3px 8px;border-radius:5px;cursor:default;
+    /* 行高必须写死 px：原来 1.55 是乘各自字号，
+       左列等宽 11px、右列 12px，每行差 1.6px，18 行就错位近 30px */
+    line-height:18px;min-height:24px;
+    white-space:nowrap;
+  }
+  .trow > span{line-height:18px}
+  .trow.hit{cursor:pointer}
+  .trow.hit:hover{background:var(--hover-soft)}
+  /* 另一列被联动的同一行：常亮，不依赖鼠标是否停在上面 */
+  .trow.link{background:var(--hover-strong)}
+  .trow.link .tn{color:var(--accent-ink)}
+  .trow .tw{
+    flex:0 0 11px;width:11px;text-align:center;
+    font-size:8px;color:var(--ghost);transition:.15s;
+  }
+  .trow .tn{overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .trow .tm{margin-left:auto;padding-left:10px;color:var(--ghost);font-size:10.5px;flex:0 0 auto}
+  .trow .tg{color:var(--accent)}
+  .trow .tq{color:var(--ghost2)}
+  /* 右列行尾的两列按钮：眼睛（这一层显不显示）+ ×（断开这个库）。
+     宽度写死两格，即使某一行没有 ×，右边缘也不会参差 —— 一列数字、一列眼睛、一列叉，
+     竖着扫下去是一条直线。 */
+  .trow .tacts{
+    flex:0 0 auto;display:flex;align-items:center;gap:2px;margin-left:2px;
+  }
+  /* 两个槽位宽度写死：没有 × 的行留一个空槽，
+     否则「眼睛」会滑到叉的位置上，一列图标变成两种对齐。 */
+  .trow .tacts b.tgap{width:18px;height:18px;visibility:hidden}
+  .trow .tacts b{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:18px;height:18px;border-radius:5px;flex:0 0 auto;
+    color:var(--ghost2);cursor:pointer;transition:color .14s,background .14s;
+  }
+  .trow .tacts b:hover{color:var(--ink);background:var(--press)}
+  .trow .tacts b svg{width:12px;height:12px;display:block}
+  /* 隐藏的层级：整行退到背景里，但还认得出来 —— 它只是不画在雨图里，没有消失 */
+  .trow.hid .tn{color:var(--ghost2);text-decoration:line-through}
+  .trow.hid .tm{color:var(--hair)}
+  .trow.hid .tacts b.teye{color:var(--accent)}
+  /* 当前层：树图里选中的那一行，切到雨图就是它 */
+  .trow.sel{background:var(--hover-strong)}
+  .trow.sel .tn{color:var(--accent-ink)}
+  /* 二次确认：× 就地换成「删除 / 取消」，不弹框 */
+  .trow .tacts b.tdel.on{color:#c0442f;background:rgba(192,68,47,.10)}
+  .trow .tacts b.tcancel{width:auto;padding:0 5px;font-size:10.5px}
+  /* 锁：未锁 = 和眼睛一样灰（线框）；已锁 = 红色实心。
+     同一个位置只表达一件事，两种状态不许共用符号。 */
+  .trow .tacts b.tlk:hover{color:#c0442f;background:rgba(192,68,47,.10)}
+  /* 已锁：红色实心。整棵树里**只有这一处**随锁定状态变，
+     行本身、名字、数字、展开状态一概不动 —— 和 PS 的图层锁一个意思。 */
+  .trow .tacts b.tlk.on{color:#c0442f}
+  /* 锁对话框：遮罩 + 一张卡片。密码框只走 type=password，不做明文切换 */
+  .lockmask{
+    position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;
+    background:rgba(20,22,26,.28);backdrop-filter:blur(1.5px);
+  }
+  .lockcard{
+    width:268px;background:var(--panel);border:1px solid var(--hair);
+    border-radius:12px;padding:16px 16px 12px;box-shadow:0 12px 40px rgba(0,0,0,.18);
+  }
+  .lockcard .lh{font-size:12.5px;color:var(--ink);margin-bottom:11px;line-height:1.5}
+  .lockcard .lh em{font-style:normal;color:var(--muted)}
+  .lockcard input{
+    width:100%;box-sizing:border-box;height:31px;padding:0 9px;margin-bottom:8px;
+    border:1px solid var(--hair);border-radius:7px;background:var(--bg);
+    font-size:12.5px;color:var(--ink);outline:none;
+  }
+  .lockcard input:focus{border-color:var(--accent)}
+  .lockcard .lerr{min-height:15px;font-size:11px;color:#c0442f;margin-bottom:4px}
+  .lockcard .lf{display:flex;justify-content:flex-end;gap:8px}
+  .lockcard .lf b{
+    padding:5px 13px;border-radius:7px;font-size:12px;cursor:pointer;
+    color:var(--muted);border:1px solid transparent;
+  }
+  .lockcard .lf b:hover{background:var(--press);color:var(--ink)}
+  .lockcard .lf b[data-lk="ok"]{color:#fff;background:var(--accent)}
+  .lockcard .lf b[data-lk="ok"]:hover{background:var(--accent-ink);color:#fff}
+  .lockcard .lf b.busy{opacity:.55;pointer-events:none}
+  /* 忘记密码在左下角：它是「退出这条路」，不该和确认按钮挤在一起 */
+  .lockcard .lf b.lforgot{margin-right:auto;color:var(--ghost2);font-size:11px;padding:5px 6px}
+  .lockcard .lf b.lforgot:hover{color:#c0442f;background:transparent}
+  .lockcard .lbody{font-size:12px;line-height:1.65;color:var(--ink2);margin-bottom:8px}
+  .lockcard .lbody b{color:#c0442f}
+  .lockcard .lnote{font-size:10.5px;line-height:1.6;color:var(--muted);margin-bottom:11px}
+  /* 表头那颗锁：纯统计，只在真有锁定时出现。
+     不占一行、不插进树里 —— 树是数据，这里只是数字。 */
+  .thead .thlock{
+    display:none;align-items:center;gap:4px;cursor:pointer;
+    color:#c0442f;padding-left:9px;border-left:1px solid var(--hair);
+  }
+  .thead .thlock.on{display:inline-flex}
+  .thead .thlock:hover{opacity:.7}
+  .thead .thlock span{color:inherit}
+  .thead .thlock svg{width:10px;height:10px;display:block;flex:0 0 auto}
+  /* 锁面板：列出所有被锁的项。max-height 防止锁了几十项把屏幕撑爆 */
+  .lockcard .lplist{max-height:230px;overflow:auto;margin-bottom:10px}
+  .lockcard .lprow{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 2px;border-bottom:1px solid var(--hair);font-size:11.5px;color:var(--ink2);
+  }
+  .lockcard .lprow:last-child{border-bottom:0}
+  .lockcard .lprow i{flex:0 0 auto;display:flex;color:#c0442f}
+  .lockcard .lprow i svg{width:11px;height:11px;display:block;margin-top:1px}
+  .lockcard .lprow span{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lockcard .lprow b{
+    flex:0 0 auto;padding:3px 9px;border-radius:6px;cursor:pointer;
+    font-size:11px;color:var(--muted);border:1px solid var(--hair);
+  }
+  .lockcard .lprow b:hover{color:#c0442f;border-color:rgba(192,68,47,.4)}
+  .tmono{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:11px}
+  .tkind{color:var(--hair);font-size:10px}
+  .hint{
+    position:fixed;left:24px;bottom:20px;
+    font-size:11px;color:var(--muted);letter-spacing:.02em;
+  }
+  #ver{
+    position:fixed;right:24px;bottom:18px;font-size:11px;
+    color:var(--ghost2);letter-spacing:.05em;user-select:none;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="addr">
+  <div id="crumb"></div>
+  <input id="q" type="text" placeholder="搜索会话或文件…" autocomplete="off" spellcheck="false">
+  <div id="qlist"></div>
+  <span class="ico">
+    <svg class="mag" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+      <circle cx="6.8" cy="6.8" r="4.6"/>
+      <path d="M10.4 10.4L14 14" stroke-linecap="round"/>
+    </svg>
+    <span id="qx" title="全部删除">×</span>
+  </span>
+</div>
+<div id="tip"></div>
+<div id="ctx"></div>
+<div id="ctx2"></div>
+<div id="tune"></div>
+<div id="modes"><i class="pill"></i><b data-m="tree">树图</b><b data-m="rain" class="on">雨图</b></div>
+<div id="treewrap">
+  <canvas id="rip"></canvas>
+  <div class="tcol">
+    <div class="thead"><b>磁盘上真实的样子</b><span id="thdisk">…</span></div>    <div class="tbody" id="tbdisk"></div>
+  </div>
+  <div class="tcol">
+    <div class="thead"><b>雨图显示的样子</b><span id="thmap">…</span><span id="thlock" class="thlock"></span></div>
+    <div class="tbody" id="tbmap"></div>
+  </div>
+</div>
+<div id="live"><span class="dot"></span><span id="lvtext">连接中…</span></div>
+<div class="hint" id="hint">点开看圆周 · 按住拖动 · 右键更多</div>
+<div id="ver">雨滴图 v2.7.0</div>
+
+<script src="data.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var TAU = Math.PI * 2;
+  var cv = document.getElementById('cv');
+  var ctx = cv.getContext('2d');
+  var tip = document.getElementById('tip');
+  var tipHTML = '';            /* 上一次写进提示框的内容，一样就不再重建 DOM */
+  var crumb = document.getElementById('crumb');
+
+
+  var W = 0, H = 0, DPR = 1, CX = 0, CY = 0;
+
+  var P = {
+    gap: 14,          /* 珠子之间的最小间隙 */
+    rMin: 13,         /* 珠子可读下限，低于这个就必须合并 */
+    fill: 0.64,       /* 珠子最多吃掉圆周的多少（剩下的留给父点本体可读） */
+    ring: 0.34,       /* 父点半径 = 视口短边 × ring */
+    lane: 26,         /* 展开层的额外外距 */
+    slack: 0.34       /* 首尾之间留的弧口，读作“起点/终点” */
+  };
+
+  var root = (location.hash.indexOf('dense') >= 0 && window.RAINDROP_TREE_DENSE)
+    ? window.RAINDROP_TREE_DENSE : window.RAINDROP_TREE;
+  var path = [];            /* 焦点链，path[0] 是根 */
+  var expanded = true;   /* 进来就铺开子体，不再先看一个孤零零的大圆 */
+  var openGroups = {};      /* 哪些合并珠子被展开了（可逆） */
+  var beans = [];           /* 当前渲染项 */
+  var ripples = [];
+  var hoveredKey = null;
+  /* 拖动：按住圆挪动超过阈值＝拖动（圆跟着手走），没超过＝点击（下钻）。
+     两者靠位移区分，不需要长按、也不需要右键。
+     松手即回弹到自动堆积位 —— 拖动只是临时挪开看看被挡住的圆，不改变布局。 */
+  var drag = null;          /* { bean, key, sx, sy, ox, oy, moved, hit, snap, homeX, homeY, homeR } */
+  var DRAG_MIN = 4;         /* 判定阈值(px)：小于它算点击，大于算拖动 */
+  /* 拖动中要守住「任何两个圆都不重叠」这条全局规则。
+     做法是每帧对所有圆做两遍推离（O(n²/2)，n=300 时约 1.8ms），
+     绝不在指针事件里调 settle() —— 那一次是 300 万次计算、每帧 60ms，会直接卡死。 */
+  var SHOVE_GAP = 2;        /* 最小间隙，和 settle 保持一致 */
+  /* packItems 算出的椭圆参数存一份，拖动时钳制边界要用 */
+  var packCX = 0, packCY = 0, packRX = 1, packRY = 1;
+  /* 边界松紧倍数：1 = 严格不越界，>1 = 允许圆溢出（屏幕窄、圆多时才会 >1）。
+     布局、拖动钳制、松手还原三处必须用同一个值，否则来回切换时松紧不一，看着像在跳。 */
+  var packSoft = 1;
+  /* 上一轮布局的指纹：一模一样就别重排（见 buildItems 结尾） */
+  var lastLayoutSig = '';
+  /* 数据轮询的时间戳。只有它刚刷过（400ms 内）的 sync，
+     才允许给「半径变了」的圆冒涟漪 —— 否则改窗口大小、切层级
+     也会让半径整体缩放，那是全屏几十颗一起冒圈，纯噪音。 */
+  var pulseAt = 0;
+  var lastT = 0;
+  var needsBuild = true;
+
+  /* ===== 性能角标（地址带 ?perf 才出现，平时完全不存在）=====
+     卡顿这种事不能靠猜：圆数、布局耗时、同步耗时、帧率，四个数字一摆，
+     就知道是「算得慢」还是「一直在算」还是「画得慢」。
+     平时零成本：PERF 为 false 时所有记账调用都被这一行 if 挡掉。 */
+  var PERF = /[?&]perf/.test(location.search);
+  var pfT = (window.performance && performance.now) ? function(){ return performance.now(); }
+                                                      : function(){ return Date.now(); };
+  var pfStat = { pack: 0, packN: 0, sync: 0, syncN: 0, n: 0, fps: 0, fMax: 0, box: null,
+                 frames: 0, acc: 0, t0: 0, t1: 0 };
+  function pfShow(){
+    if (!PERF) return;
+    if (!pfStat.box){
+      var d = document.createElement('div');
+      d.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9999;'
+        + 'font:11px/1.5 ui-monospace,Consolas,monospace;color:#fff;'
+        + 'background:rgba(0,0,0,.62);padding:5px 8px;border-radius:7px;'
+        + 'pointer-events:none;white-space:pre;letter-spacing:.2px';
+      document.body.appendChild(d);
+      pfStat.box = d;
+    }
+    pfStat.box.textContent = '圆 ' + pfStat.n
+      + '  |  排 ' + pfStat.pack.toFixed(1) + 'ms ×' + pfStat.packN
+      + '  |  同步 ' + pfStat.sync.toFixed(1) + 'ms ×' + pfStat.syncN
+      + '  |  轮询 ' + (pfStat.live || 0).toFixed(1) + 'ms ×' + (pfStat.liveN || 0)
+      + '\n' + pfStat.fps.toFixed(0) + ' fps  最长帧 ' + pfStat.fMax.toFixed(1) + 'ms';
+  }
+  var SNAP = /[#&?]snap/.test(location.search + location.hash);
+
+  /* ---- 实时模式：数据从本地 live_server.py 来，页面只认 /api/tree ---- */
+  /* 连不连服务：先看 URL 有没有明确要求，没有就自己问一句。
+     以前只看参数，所以从收藏夹打开、或者直接开 ring.html 时，永远停在
+     「连接中…」，画的还是 data.js 里写死的演示数据 —— 用户会以为那是自己的会话。
+     改成探测：本地回环几十毫秒，同步发一次就够，不用把整段初始化改成异步。 */
+  var LIVE = /[?&]src=live/.test(location.search + location.hash);
+  if (!LIVE && location.protocol !== 'file:'){
+    try {
+      var _px = new XMLHttpRequest();
+      _px.open('GET', '/api/ping', false);
+      _px.send();
+      if (_px.status === 200){
+        var _pi = JSON.parse(_px.responseText);
+        /* 认 app 字段，别把同端口上别的程序当成自己 */
+        if (_pi && _pi.app === 'raindrop-chart') LIVE = true;
+      }
+    } catch (e) { /* 服务没起就是没起，保持原来的离线渲染 */ }
+  }
+  /* 数据源：workbuddy（本机会话记录）/ csv（通用层级）……
+     名字从 URL 读，加新数据源只改后端注册表，这里一行都不用动。 */
+  /* 取到 & 或 # 为止，再解码 —— 用 [\w.-] 会把百分号编码截断 */
+  /* 空字符串 = 顶级目录（Raindrop Chart 下挂几个库）。
+     以前默认就是 workbuddy，结果装了 WorkBuddy 的人永远看不到示例数据。 */
+  var SOURCE = (function(){
+    var m = /[?&]source=([^&#]+)/.exec(location.search + location.hash);
+    var v = m ? m[1] : '';
+    try { v = decodeURIComponent(v); } catch (e) {}
+    return v;
+  })();
+  if (/[#&]dbgsrc/.test(location.hash)) document.title = 'SOURCE=' + SOURCE + ' | SEARCH=' + location.search + ' | HASH=' + location.hash;
+  var liveSeq = -1, liveReady = false, liveFail = 0, intoDone = false, lastSeenAt = 0;
+  /* 默认进「全库」：「对话」只挂着当前一条会话，每次进来都像没数据 */
+  /* 两种呈现方式：雨图（同心圆）/ 树图（双树） */
+  var MODE = /[#&]mode=tree/.test(location.hash) ? 'tree' : 'rain';
+  /* 雨图内部的数据范围：只看这条 / 这条动过的文件 / 全库 */
+  var VIEW = /[#&]view=chat/.test(location.hash) ? 'chat'
+           : (/[#&]view=space/.test(location.hash) ? 'space' : 'library');
+  var mdBox = document.getElementById('modes');
+  var pillEl = document.querySelector('#modes .pill');
+  var adBox = document.getElementById('addr');
+  var qEl = document.getElementById('q');
+  var qxEl = document.getElementById('qx');
+  var qList = document.getElementById('qlist');
+  var adFocused = false, qIndex = null, qTimer = null;
+  var lvBox = document.getElementById('live');
+  var twBox = document.getElementById('treewrap');
+  var tbdEl = document.getElementById('tbdisk');
+  var tbmEl = document.getElementById('tbmap');
+  var thdEl = document.getElementById('thdisk');
+  var thmEl = document.getElementById('thmap');
+  var treeOpen = {};              /* 树展开状态，key = 节点路径 */
+  var diskTree = null, libTree = null;
+  var lvText = document.getElementById('lvtext');
+  var hintEl = document.getElementById('hint');   /* 左下那行操作提示，随模式换文案 */
+  var ctxEl = document.getElementById('ctx');
+  var ctx2El = document.getElementById('ctx2');   /* 右键菜单的二级浮层 */
+  var liveTimer = null;
+  /* 右键菜单的状态 */
+  var ctxBean = null;          /* 右键点中的那颗珠子，null = 点在空白 */
+  var themeSel = 'blue';       /* 主题：blue / green / beige / pink / purple / dark */
+  /* Canvas 用的颜色。圆、连线、涟漪都是画上去的，读不到 CSS 变量，
+     所以由 readTheme() 把 --cv-* 读进这个对象，绘制时统一从这里取。
+     换主题只要重跑一次 readTheme，不用去改十几处 rgba。 */
+  var TC = {};
+  var ctxTree = null;          /* 树图右键命中的那一行：{name, path}，null = 空白 */
+  var ctxX = 0, ctxY = 0;
+  var branchNode = null;       /* 展开下级：锁定的那个节点（用对象身份，不用 key —— key 带序号会漂） */
+  var offline = false;         /* 离线：断开 WorkBuddy 的数据源，不拉新数据 */
+
+  /* 状态词只有三种：已连接 / 待连接 / 离线。
+     以前把「加载中… 展开工作区 · xxx」这类过程话也塞进这一格，
+     结果它永远在变，还带着和当前层无关的数字，看着很误导。 */
+  function setLive(html, stale){
+    if (!LIVE) return;
+    var head = offline ? '离线' : (stale ? '待连接' : '已连接');
+    lvBox.className = 'on' + (offline ? ' off' : (stale ? ' stale' : ''));
+    /* 没有统计就只报状态 —— 别留一个孤零零的「·」 */
+    lvText.innerHTML = html
+      ? ('<b>' + head + '</b> <s>·</s> ' + html)
+      : ('<b>' + head + '</b>');
+  }
+
+  /* src 是「库」这一层。不补它，顶级目录会回落成「2 项」——
+     看着像在数珠子个数，其实是在数几个数据源。 */
+  var CNT_UNIT = { src:'个库', dir:'目录', workspace:'空间', session:'会话', turn:'回合', file:'文件',
+                   step:'步', group:'分组', item:'项' };
+  /* 最末一层「总量」的单位也跟数据源走：会话记录是「步」，CSV 是「项」 */
+  var STEP_UNIT = '步';
+
+  /* 只报「当前这一层」和「它下一层」，不越级。
+     在资料库是 18 空间 · 102 会话 · 27991 步；
+     钻进某个空间就换成它的 N 会话 · M 回合 · K 步 ——
+     不再把全库的数字顶着当前层的位置摆出来。 */
+  function statLine(){
+    var f = focusNode();
+    if (!f) return null;
+    var kids = f.children || [];
+    var n = kids.length;
+    if (!n) return f.steps ? (f.steps + ' ' + STEP_UNIT) : '末端';
+
+    /* 顶级目录不报数量：这里的「几个库」混了两种来源 ——
+       一颗是连本机服务读出来的，一颗是程序自带的示例。
+       合成一个数字怎么数都会误导，交给画面自己说（几颗圆就是几个库）。 */
+    if (kids[0] && kids[0].kind === 'src') return '';
+
+    var out = n + ' ' + (CNT_UNIT[kids[0].kind] || '项');
+
+    /* 下一层：子节点已加载明细就直接数，还没加载就用后端算好的计数 */
+    var nxt = 0, nk = '', i, k, c;
+    for (i = 0; i < n; i++){
+      k = kids[i];
+      c = k.children || [];
+      if (c.length){
+        nxt += c.length;
+        if (!nk) nk = c[0].kind || '';
+      } else if (k.sessions){
+        nxt += k.sessions;
+        if (!nk) nk = 'session';
+      } else if (k.turns){
+        nxt += k.turns;
+        if (!nk) nk = 'turn';
+      }
+    }
+    if (nxt) out += ' <s>·</s> ' + nxt + ' ' + (CNT_UNIT[nk] || '项');
+    /* 叶子层已经报过「N 个文件」，根节点的 steps 又是同一个数 ——
+       同一个数说两遍会变成「15 文件 · 15 文件」。 */
+    if (f.steps && f.steps !== n) out += ' <s>·</s> ' + f.steps + ' ' + STEP_UNIT;
+    return out;
+  }
+
+  function clearFresh(node){
+    if (!node) return;
+    delete node.__fresh;
+    var k = node.children || [];
+    for (var i = 0; i < k.length; i++) clearFresh(k[i]);
+  }
+  /* 收集所有叶子步骤，用于按时间戳判定“哪些是刚到的” */
+  function collectSteps(node, out){
+    var k = node.children || [], i;
+    for (i = 0; i < k.length; i++){
+      if (k[i].children && k[i].children.length) collectSteps(k[i], out);
+      else out.push(k[i]);
+    }
+    return out;
+  }
+  function maxAt(steps){
+    var m = 0, i;
+    for (i = 0; i < steps.length; i++) if ((steps[i].at || 0) > m) m = steps[i].at || 0;
+    return m;
+  }
+
+  function weigh(n){
+    if (n.w !== undefined) return n.w;
+    if (n.children && n.children.length){
+      var s = 0;
+      for (var i = 0; i < n.children.length; i++) s += weigh(n.children[i]);
+      n.w = s || 1;
+    } else {
+      n.w = (n.value === undefined ? 1 : n.value);
+    }
+    return n.w;
+  }
+
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    var box = cv.getBoundingClientRect();
+    W = Math.round(box.width); H = Math.round(box.height);
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    CX = W / 2; CY = H / 2;
+    needsBuild = true;
+    if (MODE === 'tree') ripResize();
+    /* 窗口尺寸变了，水滴重新对一次位（不缓存，直接重算） */
+    movePill(mdBox.querySelector('b.on'));
+  }
+
+  function focusNode(){ return path.length ? path[path.length - 1] : null; }
+
+  /* 权重口径在两层不同（回合=步数，步骤=耗时），所以不能直接打印数字 */
+  function wtext(n){
+    if (!n) return '';
+    var k = n.children || [];
+    if (n.kind === 'file') return k.length + ' 轮 · ' + (n.count || 0) + ' 次';
+    if (n.kind === 'session') return (n.steps || 0) + ' 步 · ' + (n.turns || 0) + ' 轮';
+    /* 「任务」聚合层：直接下级是任务，不是会话 */
+    if (n.kind === 'tasks') return (n.tasks || k.length) + ' 个任务 · ' + (n.sessions || 0) + ' 个会话';
+    /* 工作区在 shelves 里 children 是空的（点开才填），数量得看 sessions 字段 */
+    if (n.kind === 'workspace') return (n.sessions || k.length) + ' 个会话 · ' + (n.steps || 0) + ' 步';
+    if (k.length && k[0].kind === 'workspace'){
+      var wt = 0, wi;
+      for (wi = 0; wi < k.length; wi++) wt += (k[wi].steps || 0);
+      return k.length + ' 个工作区 · ' + wt + ' 步';
+    }
+    if (k.length && k[0].kind === 'file'){
+      var fc = 0, j;
+      for (j = 0; j < k.length; j++) fc += (k[j].count || 0);
+      return k.length + ' 个文件 · ' + fc + ' 次改动';
+    }
+    if (!k.length) return (LIVE ? fmtSec(n.value) : String(Math.round(n.w || 0)));
+    var hasSub = false, steps = 0, i;
+    for (i = 0; i < k.length; i++){
+      if (k[i].children){ hasSub = true; steps += k[i].children.length; }
+    }
+    if (hasSub) return k.length + ' 轮 · ' + steps + ' 步';
+    return k.length + (LIVE ? ' 步' : ' 项');
+  }
+
+  /* 按可用宽度裁字：珠子多小就写多少字，绝不压出边界 */
+  /* fitText 的结果缓存：measureText 会强制浏览器做文本排版，
+     一帧里对同一个名字量几十次纯属浪费。key = 名字 + 宽度上限（取整）。
+     上限 4000 条，超了就整表清掉 —— 字号变了旧条目自然作废，不会显示错。 */
+  var fitCache = {};
+  function fitText(txt, maxW){
+    if (!txt) return '';
+    var key = txt + '|' + (maxW | 0);
+    var got = fitCache[key];
+    if (got !== undefined) return got;
+    var out = txt;
+    if (ctx.measureText(txt).width > maxW){
+      var t = String(txt);
+      while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+      out = t.length > 1 ? t + '…' : '';
+    }
+    var cnt = 0;
+    for (var k in fitCache) cnt++;
+    if (cnt > 4000) fitCache = {};
+    fitCache[key] = out;
+    return out;
+  }
+
+  function fmtSec(ms){
+    if (!ms) return '—';
+    return ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms) + 'ms';
+  }
+
+  /* ---------- 核心：圆的周长能装下几个点 ---------- */
+
+  /* 名字像不像：公共前缀占比 + 包含关系。中文短标题靠这个够用 */
+  function nameSim(a, b){
+    if (!a || !b) return 0;
+    a = String(a).toLowerCase();
+    b = String(b).toLowerCase();
+    if (a === b) return 1;
+    var n = Math.min(a.length, b.length);
+    if (!n) return 0;
+    var i = 0;
+    while (i < n && a.charAt(i) === b.charAt(i)) i++;
+    var pre = i / Math.max(a.length, b.length);
+    if (a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return Math.max(pre, 0.55);
+    return pre * 0.9;
+  }
+
+  /* buildItems 的输入级缓存（见函数开头的说明） */
+  var lastBuildSig = '', lastBuildOut = null;
+
+  function buildItems(){
+    var f = focusNode();
+    if (!f) return [];
+
+    var kids = f.children || [];
+    if (!kids.length) return [];
+
+    if (!expanded) return [];
+
+    /* 输入指纹：焦点层 + 每个孩子的权重 + 合并珠展开状态。
+       数据轮询每 1.5 秒把 needsBuild 置一次 true，于是就算什么都没变，
+       也要把几千个回合重新「称重 → 对数配平 → 合并 → 折叠 → 排序」一遍
+       —— 大会话层这一遍是几十毫秒，表现为画面每秒多卡一下。
+       指纹没变就把上次的结果原样还回去，整条流水线全部跳过。
+       weigh 取的三个量（steps/value/count）就是权重会变的全部来源。 */
+    var bs = 'p' + path.length + (branchNode ? 'B' : '');
+    for (var pi = 0; pi < path.length; pi++){
+      var pn = path[pi];
+      bs += (pn.__addr || pn.name || '?') + ':' + (pn.children ? pn.children.length : 0) + ';';
+    }
+    for (var fi = 0; fi < kids.length; fi++){
+      var fc = kids[fi];
+      bs += (fc.steps || 0) + ',' + (fc.value || 0) + ',' + (fc.count || 0) + ','
+          + (fc.children ? fc.children.length : 0) + ';';
+    }
+    bs += '|' + Object.keys(openGroups).length;
+    /* 隐藏层的开关和「只看这一支」都要参与指纹，不然关掉一层不会生效 */
+    var hn = 0;
+    for (var hk in hiddenAddr) hn++;
+    bs += '|' + hn + '|' + (branchNode ? (branchNode.__addr || branchNode.name || 'B') : '');
+    if (bs === lastBuildSig && lastBuildOut) return lastBuildOut;
+
+    /* 被眼睛关掉的层不参与这一屏：不画、也不算进占比 ——
+       只是藏起来，不是删掉，关回来还是原样。 */
+    var vis = [], vi;
+    for (vi = 0; vi < kids.length; vi++) if (!isHidden(kids[vi].__addr)) vis.push(kids[vi]);
+    kids = vis;
+    if (!kids.length) return [];
+
+    var total = 0, i;
+    for (i = 0; i < kids.length; i++) total += weigh(kids[i]);
+    if (!total) total = 1;
+
+    /* ===== 半径映射：对数配平 =====
+       旧的写法是 r = S * sqrt(w / Σw)，也就是**按当前视图里的占比**分半径。
+       三个毛病：
+         ① 极端值主导：实测工作区层 w 极差 368 倍 ⇒ 直径 10 ~ 189px，
+            最小的圆缩成一个点，最大的吃掉半个屏。
+         ② 视图依赖：同一批数据，筛选掉几个之后，剩下圆的半径会全部变大
+            （用户会误以为"我的项目变大了"）。
+         ③ 跨层不可比：Σw 里混着不同量纲的值。
+
+       改成：把 w 的**对数**线性映射到 [R_MIN, R_MAX] 的半径区间。
+         t = (ln(w+1) - ln(wmin+1)) / (ln(wmax+1) - ln(wmin+1))
+         r = R_MIN * (R_MAX/R_MIN)^t
+       于是**面积比恒定**（不随数据极差变化），大圆小圆分得清但不会失控。
+       后端 weights.py 里有同一套公式（那边算 w，这边算半径）。 */
+    var R_MIN = 26, R_MAX = 141;
+    var wMin = Infinity, wMax = 0;
+    for (i = 0; i < kids.length; i++){
+      var wi = weigh(kids[i]);
+      if (wi < wMin) wMin = wi;
+      if (wi > wMax) wMax = wi;
+    }
+    if (!isFinite(wMin)) wMin = 0;
+    if (wMax <= wMin) wMax = wMin + 1;
+    var lnLo = Math.log(wMin + 1), lnHi = Math.log(wMax + 1);
+    var ratio = R_MAX / R_MIN;
+    var radiusOf = function (w){
+      var t = (Math.log(Math.max(0, w) + 1) - lnLo) / (lnHi - lnLo);
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      return R_MIN * Math.pow(ratio, t);
+    };
+
+    /* 气泡云的外接半径上限 + 单位半径换算（面积正比于权重）。
+       扣掉顶部两行按钮和底部提示，别让气泡顶到控件上。 */
+    var avail = Math.min(W - 80, H - 190);
+    var limit = Math.max(120, avail) * 0.45;
+    var S = limit / 1.18;
+
+    var items = [];
+    for (i = 0; i < kids.length; i++){
+      var w0 = weigh(kids[i]);
+      items.push({
+        /* key 用地址而不是行号：关掉一层的瞬间，后面的行号会整体前移，
+           按行号做 key 会让剩下的圆全部「重新出生」一次。 */
+        key: 'n:' + (kids[i].__addr || ('#' + i)) + ':' + kids[i].name,
+        node: kids[i],
+        group: null,
+        w: w0,
+        label: kids[i].name || '',
+        r: Math.max(1, radiusOf(w0))
+      });
+    }
+
+    /* 只合并小到点不中的：堆积没有圆周容量限制，不再按“装不下”硬并。
+       跟谁合看“像不像”（名字相近 / 同族），不再只认左右邻居。
+
+       ⚠️ 原来的 guard=400 是个硬上限，在超大会话上不够用：
+       实测「路娜」会话有 2340 个回合，400 轮只压掉 400 个（合并率 17%），
+       剩下 1940 颗珠子塞进一屏 → packItems 要算 11 秒 → 浏览器直接卡死。
+       现在改成**时间预算**：合并是 O(n²/轮)，n 越大每轮越贵，
+       所以给一个固定的毫秒上限（而不是轮数上限），到点就停。
+       剩下的交给下一档：超过同屏上限时，粗合并兜底（见下方 foldOvers）。 */
+    var rRead = Math.max(15, Math.min(W, H) * 0.022);
+    var guard = 0;
+    var skip = {};        /* 判过“没人像”的，跳过它，但别挡住别人 */
+    var mergeT0 = (window.performance && performance.now) ? performance.now() : Date.now();
+    var MERGE_BUDGET = 260;   /* 合并最多花这么久（毫秒）—— 超时就不合了 */
+    var MERGE_ROUND = 4000;    /* 轮数上限只作为兜底，正常不会碰到 */
+    while (guard++ < MERGE_ROUND && items.length > 1){
+      /* 时间预算检查：每 16 轮查一次（查 performance.now 本身有开销） */
+      if ((guard & 15) === 0){
+        var nowMs = (window.performance && performance.now) ? performance.now() : Date.now();
+        if (nowMs - mergeT0 > MERGE_BUDGET) break;
+      }
+      var si = -1, sv = Infinity, kk;
+      for (kk = 0; kk < items.length; kk++){
+        if (skip[items[kk].key]) continue;
+        if (items[kk].r < sv){ sv = items[kk].r; si = kk; }
+      }
+      if (si < 0) break;
+      if (sv >= rRead) break;
+
+      /* 跟谁合：在同一个父体里挑“最像的一个”，不再只认左右邻居。
+         打分 = 名字相近 ×2 + 同族 1.2 + 位置相邻 0.5 */
+      function famOf(it){
+        if (!it) return null;
+        var n = it.group ? it.group[0] : it.node;
+        return (n && (n.family || n.tool)) || null;
+      }
+      var pick = -1, best = -1e9, fa = famOf(items[si]), bestSim = 0;
+      for (kk = 0; kk < items.length; kk++){
+        if (kk === si) continue;
+        var sc = 0;
+        var fb = famOf(items[kk]);
+        var sim = nameSim(items[si].label, items[kk].label);
+        if (fa && fb && fa === fb) sc += 1.2;
+        sc += sim * 2;
+        if (Math.abs(kk - si) === 1) sc += 0.5;
+        if (sc > best){ best = sc; pick = kk; bestSim = sim; }
+      }
+      /* 没有“像”的对象就别硬并 —— 一颗独立的小圆，好过一颗乱拼的合并珠。
+         注意要 continue 而不是 break：这颗不合并，别把后面能合的也掐掉。 */
+      if (pick < 0 || (bestSim < 0.5 && !(fa && famOf(items[pick]) === fa))){
+        skip[items[si].key] = 1;
+        continue;
+      }
+
+      var a = items[si], b = items[pick];
+      var merged = {
+        key: 'g:' + (a.group ? a.key : a.node.name) + '|' + (b.group ? b.key : b.node.name),
+        node: null,
+        group: (a.group || [a.node]).concat(b.group || [b.node]),
+        w: a.w + b.w,
+        label: a.label,
+        r: Math.max(rRead, Math.sqrt(a.r * a.r + b.r * b.r))
+      };
+      var lo = Math.min(si, pick);
+      items = items.filter(function(x, idx){ return idx !== si && idx !== pick; });
+      items.splice(lo, 0, merged);
+    }
+
+    /* ===== 同屏上限兜底 =====
+       实测（1078×600 画布）：物理布局是 O(n²)，
+         n=120 → 82ms 流畅 ｜ n=300 → 365ms 明显卡 ｜ n=600 → 1.1s 卡死 ｜ n=2340 → 11s 完全卡死
+       所以同屏珠子数必须有上限。超了就把**尾部最小的那些**折成一颗「其余 N 项」——
+       不是丢掉它们（它们还在 group 里，点开能看到），只是先收起来。
+       保留权重最大的 MAX_ON_SCREEN 颗，其余打包成一颗聚合珠。 */
+    var MAX_ON_SCREEN = 150;
+    if (items.length > MAX_ON_SCREEN){
+      /* 按半径排序（大圆在前），把后面的折起来 */
+      var byR = items.slice().sort(function(a, b){ return b.r - a.r; });
+      var keep = byR.slice(0, MAX_ON_SCREEN - 1);
+      var rest = byR.slice(MAX_ON_SCREEN - 1);
+      var restW = 0, restMembers = [];
+      for (i = 0; i < rest.length; i++){
+        restW += rest[i].w;
+        if (rest[i].group) restMembers = restMembers.concat(rest[i].group);
+        else restMembers.push(rest[i].node);
+      }
+      var fold = {
+        key: 'g:__rest__' + items.length,
+        node: null,
+        group: restMembers,
+        w: restW,
+        label: '其余 ' + restMembers.length + ' 项',
+        r: Math.max(rRead, Math.sqrt(
+            rest.reduce(function(s, x){ return s + x.r * x.r; }, 0)))
+      };
+      keep.push(fold);
+      /* 按原顺序摆回去（保持流程流向的视觉顺序） */
+      var kept = {};
+      for (i = 0; i < keep.length; i++) kept[keep[i].key] = 1;
+      items = items.filter(function(x){ return kept[x.key]; });
+      items.splice(Math.min(items.length, MAX_ON_SCREEN - 1), 0, fold);
+    }
+
+    /* 展开过的合并珠子：成员直接进池，宿主圆让位 */
+    var flat = [], j;
+    for (i = 0; i < items.length; i++){
+      var it0 = items[i];
+      if (it0.group && openGroups[it0.key]){
+        for (j = 0; j < it0.group.length; j++){
+          flat.push({
+            key: 'm:' + it0.key + ':' + j,
+            node: it0.group[j], group: null,
+            w: weigh(it0.group[j]),
+            label: it0.group[j].name || ''
+          });
+        }
+      } else {
+        flat.push(it0);
+      }
+    }
+    items = flat;
+
+    /* 展开下级：这一层的其他兄弟全部拿掉，只留它；它自己的子体也摊到同一层，
+       用虚线连回父圆 —— 不另做嵌套布局，复用现有平铺算法，层级感靠那根虚线。
+       找不到它就说明已经换了层，自动解除，免得卡在一个空的过滤条件上。 */
+    if (branchNode){
+      var only = null, bi;
+      for (bi = 0; bi < items.length; bi++){
+        if (items[bi].node === branchNode){ only = items[bi]; break; }
+      }
+      if (only){
+        var subs = only.node.children || [];
+        if (subs.length){
+          var out = [only];
+          for (bi = 0; bi < subs.length; bi++){
+            out.push({
+              key: 'sub:' + bi + ':' + (subs[bi].name || ''),
+              node: subs[bi],
+              group: null,
+              /* 子体权重打折：全额参与平铺的话，子体一多就把父圆挤成一个小点，
+                 看不出「这些是谁的下级」了 */
+              w: weigh(subs[bi]) * 0.6,
+              label: subs[bi].name || '',
+              r: 1,
+              lane: true,          /* drawBeans 会给 lane 项画一根虚线到 hostKey */
+              hostKey: only.key,
+              sub: true
+            });
+          }
+          items = out;
+        } else {
+          items = [only];          /* 末端节点，没有下级可摊 */
+        }
+      } else branchNode = null;
+    }
+
+    /* 半径按最终权重重算，再交给堆积。
+       用的是**和雨滴视图同一套对数配平**（见 buildItems 里的 radiusOf）——
+       两个视图如果各用一套半径公式，同一个东西在两处看起来大小不同，没法对比。
+       这里局部重算一份：树图的 items 可能被拆过（只保留末端节点），w 的极差与原层不同。 */
+    var tot2 = 0;
+    for (i = 0; i < items.length; i++) tot2 += items[i].w;
+    if (!tot2) tot2 = 1;
+    var tMin = Infinity, tMax = 0;
+    for (i = 0; i < items.length; i++){
+      if (items[i].w < tMin) tMin = items[i].w;
+      if (items[i].w > tMax) tMax = items[i].w;
+    }
+    if (!isFinite(tMin)) tMin = 0;
+    if (tMax <= tMin) tMax = tMin + 1;
+    var tLo = Math.log(tMin + 1), tHi = Math.log(tMax + 1);
+    var tRatio = 141 / 26;
+    for (i = 0; i < items.length; i++){
+      var tt = (Math.log(Math.max(0, items[i].w) + 1) - tLo) / (tHi - tLo);
+      if (tt < 0) tt = 0; else if (tt > 1) tt = 1;
+      items[i].r = Math.max(14, 26 * Math.pow(tRatio, tt));
+    }
+
+    /* 数据一个字没变就别重排：packItems 是 O(n²×迭代)，一百个圆要一百多毫秒。
+       指纹 = 画布尺寸 + 圆数 + 每个圆的 key 和半径（取到 0.1px）。
+       尺寸变（resize）、层级变（key 全换）、权重变（半径变）都会让指纹不同，
+       只有"同一批圆、同样大小、同样画布"才会命中，这时候位置本来就不会变。 */
+    var sig = W + 'x' + H + '|' + items.length + '|';
+    for (i = 0; i < items.length; i++){
+      sig += items[i].key + ':' + Math.round(items[i].r * 10) + ';';
+    }
+
+    /* 少量子体（≤6 颗）固定摆成正多边形。
+       packItems 是按「把椭圆铺满」设计的 —— 3 颗圆会长到两百多半径、
+       在扁椭圆里必然被顶出上下边界（实测第三颗跑到 y=-171，屏幕外）。
+       2 颗更夸张，直接撑满半个屏幕。
+       这里不走它：位置可预测，宽屏窄屏都不用重算。 */
+    if (kids.length >= 1 && kids.length <= 6){
+      placeSources(items);
+      lastLayoutSig = sig;
+      lastBuildSig = bs; lastBuildOut = items;
+      return items;
+    }
+
+    if (sig !== lastLayoutSig || !reuseLayout(items)){
+      packItems(items, CX, CY + 24);
+      lastLayoutSig = sig;
+    }
+    lastBuildSig = bs; lastBuildOut = items;
+    return items;
+  }
+
+  /* 根层的固定摆位：正多边形，首颗在正上方，依次顺时针。
+     半径只跟屏幕短边有关，不跟权重走 —— 库与库之间是「入口」关系，
+     谁大谁小不重要，一眼能点中才重要。 */
+  /* 库这一层（顶级目录里那几颗珠子）的半径 —— **按绝对刻度算**。
+
+     不能套 max(14, S√(w/Σw)) 那套归一化：归一化等于「占本层总和的比例」，
+     于是你加一个新库，所有老库的圆一起缩水一圈。库是导航入口，
+     它的尺寸应该只跟自己的体量有关。
+
+     n = 这个库的叶子总数（跨库唯一口径统一的量）。
+     常数来自 V0 会话的推演：N₀=20 是「一个小示例库」的锚点，
+     β=0.103 由「真实极差 ~1900 倍 → 直径 2.2 倍」反解。
+     直径范围 0.184×min ~ 0.34×min，既放得下库名，也不至于吞屏。 */
+  function srcRadius(n){
+    var base = Math.min(W, H);
+    var RMIN = base * 0.092, RMAX = base * 0.17;
+    var N0 = 20, BETA = 0.103;
+    var r = RMIN * Math.pow(Math.max(1, n || 1) / N0, BETA);
+    return Math.max(RMIN, Math.min(RMAX, r));
+  }
+
+  function placeSources(items){
+    var n = items.length, i;
+    /* 这一层是固定摆位，不走 packItems，但拖动时的推挤（relaxAll）要用椭圆参数
+       算「能推到哪儿」。不在这儿设一份的话，它用的还是上一次 packItems 留下的
+       值 —— 刚打开页面时甚至是初始的 (0,0) / 1×1，一拖所有圆都被硬拽到左上角。 */
+    packCX = CX; packCY = CY;
+    packRX = Math.max(60, W / 2 - 40);
+    packRY = Math.max(60, H / 2 - 50);
+    packSoft = 1;
+    /* 只有两个库时左右摆：屏幕是宽的，上下摆会留出两条大空白。 */
+    /* 只有一颗时不铺圆周：n===1 走 ang=0，会被摆到圆心正右方 R 处，
+       整块图偏到一边看起来像没对齐。一颗就老老实实放正中间。 */
+    var R  = (n === 1) ? 0
+           : (n === 2) ? Math.min(W * 0.22, H * 0.30) : Math.min(W * 0.30, H * 0.26);
+    /* 基准半径按颗数收：6 颗还按 4 颗的尺寸画，圆周上会挤成一圈 */
+    var base = Math.min(W, H) * (n <= 2 ? 0.115 : n <= 4 ? 0.095 : 0.075);
+    /* 保留权重的相对大小 —— 全画成一样大，就看不出 Hello 和 H 的区别了。
+       归一化到「最大那颗 = base」，最小的压到 0.5 倍，差距不至于悬殊到看不见。 */
+    /* 库这一层已经由 srcRadius() 按绝对刻度算好，别再用 maxR 归一化 */
+    var isSrc = !!(items[0] && items[0].node && items[0].node.kind === 'src');
+    var maxR = 1;
+    for (i = 0; i < n; i++) maxR = Math.max(maxR, items[i].r || 1);
+    for (i = 0; i < n; i++){
+      var ang = (n === 1) ? 0
+              : (n === 2) ? (i === 0 ? Math.PI : 0)
+              : (-Math.PI / 2 + i * TAU / n);
+      var rr = isSrc ? srcRadius(items[i].node && items[i].node.n)
+                     : base * Math.max(0.5, (items[i].r || 1) / maxR);
+      items[i].r   = rr;
+      items[i].tr  = rr;
+      items[i].tx  = CX + Math.cos(ang) * R;
+      items[i].ty  = CY + Math.sin(ang) * R + 8;
+      items[i].ang = ang;
+    }
+  }
+
+  /* 把上一轮的落点抄回来。key 对不上就返回 false，调用方会退回全量重排。 */
+  function reuseLayout(items){
+    var m = {}, i, b;
+    for (i = 0; i < beans.length; i++) m[beans[i].key] = beans[i];
+    for (i = 0; i < items.length; i++) if (!m[items[i].key]) return false;
+    for (i = 0; i < items.length; i++){
+      b = m[items[i].key];
+      items[i].tx = b.tx;
+      items[i].ty = b.ty;
+      /* 必须用 b.tr（packItems 长大之后的最终半径），
+         不能用 items[i].r（那是长大前的初始值），否则圆会缩一圈。 */
+      items[i].tr = b.tr;
+      items[i].ang = b.ang || 0;
+    }
+    return true;
+  }
+
+  /* 气泡堆积：重叠就推开、贴到边界就收拢，跑到边缘贴合为止（初版的规则） */
+  /* 一次"沉降"：推离重叠 + 沿径向拉回椭圆边界，两种约束交替迭代。
+     分开做会互相打架（收边界把圆挤重叠，推离又把圆顶出界），交错才会收敛。
+
+     soft = 边界松紧倍数。1 = 严格不越界；>1 = 允许圆溢出到「soft 倍椭圆」以内。
+     为什么要有它：屏幕窄的时候椭圆就那么点大，硬边界会把圆压得互相叠上。
+     与其硬压，不如让它溢出一点 —— 溢出的圆照样有引力（越远拉得越狠），
+     不会飞走，只是不再被硬顶回来。 */
+  function settle(order, cx, cy, rx, ry, iters, soft){
+    var n = order.length;
+    var PUSH = 0.55, PULL = 0.7;
+    if (!soft || soft < 1) soft = 1;
+    var i, j, iter, it, dx, dy, d, ux, uy, Rb, over;
+
+    for (iter = 0; iter < iters; iter++){
+      var moved = 0;
+
+      for (i = 0; i < n; i++){
+        var a = order[i];
+        for (j = i + 1; j < n; j++){
+          var b = order[j];
+          dx = b.x - a.x; dy = b.y - a.y;
+          var need = a.r + b.r + 2.0;
+          var d2 = dx * dx + dy * dy;
+          if (d2 >= need * need) continue;
+          d = Math.sqrt(d2);
+          if (d < 0.01){ dx = 0.01 * (j - i); dy = 0.01; d = 0.02; }
+          var push = (need - d) / d * PUSH;
+          ux = dx * push; uy = dy * push;
+          var ma = a.r * a.r, mb = b.r * b.r, sw = ma + mb;
+          a.x -= ux * (mb / sw); a.y -= uy * (mb / sw);
+          b.x += ux * (ma / sw); b.y += uy * (ma / sw);
+          moved++;
+        }
+      }
+
+      for (i = 0; i < n; i++){
+        it = order[i];
+        dx = it.x - cx; dy = it.y - cy;
+        d = Math.sqrt(dx * dx + dy * dy);
+        if (d < 1e-6) continue;
+        ux = dx / d; uy = dy / d;
+        Rb = 1 / Math.sqrt((ux / rx) * (ux / rx) + (uy / ry) * (uy / ry)) * soft;
+
+        /* 圆心不许跑出屏幕。圆本身可以溢出（半个圆贴着边被裁掉，照样认得出来），
+           但圆心一旦在屏外，这个圆就点不到、也拖不回来 —— 数据等于丢了。
+           所以越界的天花板是「圆心贴到屏幕边」，到这儿还挤就交给外面的缩小逻辑。 */
+        var lx = ux > 1e-6 ? (W - cx) / ux : (ux < -1e-6 ? -cx / ux : 1e9);
+        var ly = uy > 1e-6 ? (H - cy) / uy : (uy < -1e-6 ? -cy / uy : 1e9);
+        var lsc = Math.min(lx, ly) - it.r * 0.35;   /* 留一点，标题还能认出是谁 */
+        if (lsc > 0 && Rb > lsc) Rb = lsc;
+
+        over = d + it.r - Rb;
+        if (over > 0){
+          it.x -= ux * over * PULL;
+          it.y -= uy * over * PULL;
+          moved++;
+        }
+      }
+
+      if (!moved) break;
+    }
+  }
+
+  /* 把一堆圆铺满一个椭圆区域。
+     圆是等比的，所以“铺满”= 所有人一起长大，比例不变 —— 面积仍正比权重。
+     只撒点不改半径是填不满椭圆的：缝隙一多，贴合规则又会把它们挤回圆团。 */
+  function packItems(items, cx, cy){
+    var n = items.length;
+    if (!n) return;
+    var __pt = PERF ? pfT() : 0;
+
+    var order = items.slice().sort(function(a, b){ return b.r - a.r; });
+    var GA = Math.PI * (3 - Math.sqrt(5));
+    var i, it, round;
+
+    /* 目标区域＝椭圆：横向吃满屏宽，纵向吃满顶部按钮与底部提示之间的高度 */
+    var rx = Math.max(80, (W - 80) / 2);
+    var ry = Math.max(80, (H - 160) / 2);
+    var rCap = Math.min(rx, ry) * 0.88;      /* 单个圆的直径上限（相对短半轴） */
+    packCX = cx; packCY = cy; packRX = rx; packRY = ry;
+    packSoft = 1;                            /* 先按严格边界试，装不下再放宽 */
+
+    /* 播种：黄金角螺旋，直接按椭圆轴比撒，省得先成圆再说 */
+    for (i = 0; i < n; i++){
+      it = order[i];
+      var u = n === 1 ? 0 : Math.sqrt(i / n) * 1.05;
+      it.x = cx + Math.cos(i * GA) * u * rx * 0.7;
+      it.y = cy + Math.sin(i * GA) * u * ry * 0.7;
+    }
+
+    var iters = n > 60 ? 70 : (n > 25 ? 110 : 180);
+    var TARGET = 0.56;                        /* 椭圆里被圆盖住的比例 */
+
+    /* 长大 → 沉降，循环到填满 */
+    for (round = 0; round < 7; round++){
+      settle(order, cx, cy, rx, ry, iters);
+
+      var cov = 0;
+      for (i = 0; i < n; i++) cov += order[i].r * order[i].r;
+      cov = cov / (rx * ry);                  /* Σπr² ÷ π·rx·ry */
+      if (cov >= TARGET) break;
+
+      var f = Math.min(1.30, Math.sqrt(TARGET / Math.max(cov, 1e-4)));
+      /* 长大的倍率必须全员一致，否则大圆被上限卡住、小圆继续长，
+         “面积正比步数”就被悄悄改掉了。所以先用最大圆算出允许的倍率。 */
+      var rmaxNow = order[0].r;
+      if (rmaxNow * f > rCap) f = rCap / rmaxNow;
+      if (f <= 1.001) break;
+      for (i = 0; i < n; i++) order[i].r *= f;
+    }
+
+    /* 收尾：装不下时按「先溢出、再缩小」两级降级，绝不重叠。
+       ① 边界分三档放松（1 → 1.15 → 1.30）：圆可以溢出到屏幕外一点，越界后照样
+          有引力把它拉回来，只是不再被硬顶住。比例完全不动 —— 大小比例是用户
+          认可的，所以这是首选。
+       ② 放到最松还挤：全员等比缩小。等比缩放不改变任何比例关系，
+          只是整体小一圈，「大圆小圆一眼分得开」依然成立。
+
+       ⚠️ 这里绝对不能写成「每次缩 5% 再重排、循环二十几轮」：
+       settle 是 O(n²×iters)，n=500 时一次就 30ms，二十几轮直接 1.6 秒，
+       整个页面像死了一样。所以改成：边界三档各试一次，仍不行就按「最差那一对」
+       把需要的缩放倍率一次算出来，最多再修 3 次。总 settle 次数 ≤ 6。 */
+    var SOFT_MAX = 1.30;
+    var soft = 1, worst = 1e9, wsum = 1, p;
+
+    /* 量一遍最差间隙，顺手记下那一对的半径和 —— 算缩放倍率要用它 */
+    function scanWorst(){
+      var w = 1e9, sm = 1;
+      for (var ia = 0; ia < n; ia++){
+        var A = order[ia];
+        for (var ib = ia + 1; ib < n; ib++){
+          var B = order[ib];
+          var ddx = B.x - A.x, ddy = B.y - A.y;
+          var rs = A.r + B.r;
+          var gp = Math.sqrt(ddx * ddx + ddy * ddy) - rs;
+          if (gp < w){ w = gp; sm = rs; }
+        }
+      }
+      wsum = sm;
+      return w;
+    }
+
+    /* ① 边界三档。绝大多数层在第一档就结束了（一次 settle 就够）。 */
+    var SOFT_STEPS = [1, 1.15, SOFT_MAX];
+    for (var st = 0; st < SOFT_STEPS.length; st++){
+      soft = SOFT_STEPS[st];
+      settle(order, cx, cy, rx, ry, iters, soft);
+      worst = scanWorst();
+      if (worst > -1.0) break;
+    }
+
+    /* ② 最松还挤：按最差那一对算出倍率，一次缩到位。
+       用解析倍率而不是固定 0.94 磨，是因为每磨一次都要重排一轮 settle。 */
+    for (var gd = 0; gd < 3 && worst <= -1.0; gd++){
+      var k = (wsum + worst - 2) / wsum;       /* 让最差那对刚好留 2px 缝 */
+      if (!(k > 0.5)) k = 0.5;
+      if (k > 0.99) k = 0.99;
+      for (i = 0; i < n; i++) order[i].r *= k;
+      settle(order, cx, cy, rx, ry, iters, soft);
+      worst = scanWorst();
+    }
+    /* 记下最终用的边界松紧：拖动时的钳制要用同一个值，
+       否则松手回弹到「严格椭圆」里，又把人挤成一堆。 */
+    packSoft = soft;
+
+    /* 横向铺开：竖向已经被最大的圆吃满，横向还剩空档。
+       把 x 方向沿中心拉开，再用沉降修掉新挤出来的重叠，反复到接近椭圆轴比。
+       拉开只会让缝变大不会造成重叠，所以这一步是安全的。
+
+       但只在「边界没放宽」时才做：soft>1 说明本来就装不下、已经溢出，
+       这时候再把圆往两边拉，会散得更开，跟「聚成一颗雨滴」相反。 */
+    var wantAsp = rx / ry;
+    for (round = 0; round < 5 && soft <= 1.001; round++){
+      var bx0 = 1e9, bx1 = -1e9, by0 = 1e9, by1 = -1e9;
+      for (i = 0; i < n; i++){
+        it = order[i];
+        bx0 = Math.min(bx0, it.x - it.r); bx1 = Math.max(bx1, it.x + it.r);
+        by0 = Math.min(by0, it.y - it.r); by1 = Math.max(by1, it.y + it.r);
+      }
+      var bw = Math.max(1, bx1 - bx0), bh = Math.max(1, by1 - by0);
+      if (bw / bh >= wantAsp * 0.92) break;
+
+      var g = Math.min(1.22, Math.sqrt(wantAsp * bh / bw));
+      var mcx = (bx0 + bx1) / 2;
+      for (i = 0; i < n; i++) order[i].x = mcx + (order[i].x - mcx) * g;
+      settle(order, cx, cy, rx, ry, iters, soft);
+    }
+
+    for (i = 0; i < n; i++){
+      it = order[i];
+      it.tx = it.x; it.ty = it.y; it.tr = it.r;
+      it.ang = Math.atan2(it.y - cy, it.x - cx);
+    }
+    if (PERF){ pfStat.pack = pfT() - __pt; pfStat.packN++; }
+  }
+
+  /* 一颗珠子「刚出生」的样子。sync() 建新圆和 rainAgain() 重置都走这里 ——
+     出生参数只维护一份，免得哪天加了字段漏掉一头，
+     又变成「刷新页面丝滑、点雨图突兀」这种一半对一半不对的状态。 */
+  function birthBean(b, i){
+    b.x = CX; b.y = CY;                 /* 从画布中心出发，水平飞向各自目标位 */
+    b.r = 0; b.a = 0;                   /* 零半径 + 零透明，长出来那一下才是渐进的 */
+    b.ta = 1;
+    b.gy = (LIVE && !SNAP) ? -(300 + i * 45 + Math.random() * 70) : 0;
+    b.gv = 0;
+  }
+
+  /* 再下一场雨：把每颗珠子退回出生状态，布局（tx/ty/tr）原样留着。
+     成本是一轮 O(n) 赋值，点多少次都不卡；
+     packItems 完全不用跑 —— 圆的大小和落点都没变。 */
+  function rainAgain(){
+    for (var i = 0; i < beans.length; i++) birthBean(beans[i], i);
+  }
+
+  function sync(){
+    /* 当前层随时跟着焦点走：树图切过来时读的就是这一个值 */
+    curAddr = (path.length && focusNode() && focusNode().__addr) || '';
+    var targets = buildItems();
+    navTick();          /* 层级变了就写一条历史，侧键才有东西可退 */
+    var seen = {};
+    /* 先建 key -> bean 索引。原来每个 target 都要线性扫一遍 beans，
+       72 个圆就是 72×72 = 5184 次字符串比较，每次轮询都跑。 */
+    var byKey = {};
+    var i;
+
+    for (i = 0; i < beans.length; i++) byKey[beans[i].key] = beans[i];
+
+    for (i = 0; i < targets.length; i++){
+      var t = targets[i];
+      seen[t.key] = 1;
+      var b = byKey[t.key] || null;
+      if (!b){
+        b = {
+          key: t.key, node: t.node, group: t.group, w: t.w, lane: t.lane, hostKey: t.hostKey,
+          tx: t.tx, ty: t.ty, tr: t.tr
+        };
+        birthBean(b, i);          /* 出生状态只由这一个函数决定，见下 */
+        if (t.node) delete t.node.__fresh;
+        beans.push(b);
+      } else {
+        /* 半径变了 = 这颗圆背后的数字更新了，给它一圈和出生落地时完全相同的涟漪，
+           位置和大小都不动，只是标记「这一颗刚有数据进来」。
+           · 判据取半径：半径本来就是按数值算的，数值一动它必动，比逐字段比对划算。
+           · 阈值 0.2px：布局缩放会有浮点抖动，不能按 0 判等；也不能太大，
+             否则「102→103 会话」这种小增量会被吞掉。
+           · 用此刻的 x/y/r 而不是目标值：万一它同时也在挪位，涟漪要从它现在所在的地方起，
+             否则会在一个空位上冒出一圈，看着像另一个东西。
+           · 只在数据轮询刚刷过（pulseAt）的 400ms 内算 —— 否则拖窗口大小
+             会让半径整体缩放，几十颗一起冒圈，纯噪音。 */
+        if (!SNAP && Date.now() - pulseAt < 400 && Math.abs(t.tr - b.tr) > 0.2)
+          spawnRipple(b.x, b.y, b.r, 0.35 + Math.min(1, b.r / 60));
+
+        b.node = t.node; b.group = t.group; b.w = t.w; b.lane = t.lane; b.hostKey = t.hostKey;
+        b.tx = t.tx; b.ty = t.ty; b.tr = t.tr; b.ta = 1;
+      }
+      if (SNAP){ b.x = b.tx; b.y = b.ty; b.r = b.tr; b.a = 1; }
+    }
+    for (i = 0; i < beans.length; i++) if (!seen[beans[i].key]) beans[i].ta = 0;
+    /* 定态快照：没有动画帧可依赖，直接剔除退场的珠子 */
+    if (SNAP){
+      for (i = beans.length - 1; i >= 0; i--) if (!seen[beans[i].key]) beans.splice(i, 1);
+    }
+    needsBuild = false;
+    if (PERF) pfStat.n = beans.length;
+  }
+
+  /* ===== 拖动期间的全局不重叠（布局的核心规则，拖动时也不例外）=====
+     任何两个圆都不许叠着。唯一区别：被手指按住的那个是「钉子」，
+     位置由指针说了算，只能让对方让开；其余两两之间各让一半。
+     一次完整遍历是 O(n²/2)：n=300 时约 45000 次距离判断（≈0.9ms），
+     跑两遍 ≈1.8ms，在 16.7ms 的一帧里还有的是余量；圆特别多时降成一遍。
+     tx/ty 和 x/y 一起改：只改 x/y 会被 step() 的缓动拽回去，两边打架会抖。
+     这些改动都是临时的，松手时 restoreHome() 一次性还原。 */
+  function relaxAll(){
+    var n = beans.length;
+    if (n < 2) return;
+    var passes = n > 600 ? 1 : 2;
+    var pinned = (drag && drag.moved) ? drag.bean : null;
+    var PUSH = 0.72;              /* 一次只解掉七成重叠，剩下的交给后续帧，看着像在流 */
+    var i, j, pass;
+
+    for (pass = 0; pass < passes; pass++){
+      var hit = 0;
+      for (i = 0; i < n; i++){
+        var a = beans[i];
+        if (a.a < 0.05 || a.r < 0.5) continue;
+        for (j = i + 1; j < n; j++){
+          var b = beans[j];
+          if (b.a < 0.05 || b.r < 0.5) continue;
+          var dx = b.x - a.x, dy = b.y - a.y;
+          var need = a.r + b.r + SHOVE_GAP;
+          var d2 = dx * dx + dy * dy;
+          if (d2 >= need * need) continue;
+          var d = Math.sqrt(d2);
+          if (d < 0.01){
+            dx = 0.01 * (j - i + 1); dy = 0.012;
+            d = Math.sqrt(dx * dx + dy * dy);
+          }
+          var over = (need - d) * PUSH;
+          var ux = dx / d, uy = dy / d;
+          if (a === pinned){
+            b.x += ux * over; b.y += uy * over;
+            b.tx += ux * over; b.ty += uy * over;
+          } else if (b === pinned){
+            a.x -= ux * over; a.y -= uy * over;
+            a.tx -= ux * over; a.ty -= uy * over;
+          } else {
+            var hx = ux * over * 0.5, hy = uy * over * 0.5;
+            a.x -= hx; a.y -= hy; a.tx -= hx; a.ty -= hy;
+            b.x += hx; b.y += hy; b.tx += hx; b.ty += hy;
+          }
+          hit++;
+        }
+      }
+      if (!hit) break;
+    }
+
+    /* 收尾：别让谁被挤出可用范围。只做一次近似钳制，代价 O(n)；
+       拉回来可能又压到人，交给下一帧继续推。
+
+       可用范围 = 椭圆 × packSoft：布局时放多松，拖动时就得放多松。
+       这里原来用 `1 - r / packRX` 同时对 x、y 生效，是个错 —— 纵向按横向的
+       尺度缩，窄屏（rx 远小于 ry）时纵向会被过早拉回中间，一堆圆挤成竖排。
+       改成两个方向各按自己的轴内缩，才是真正的椭圆内切。 */
+    for (i = 0; i < n; i++){
+      var c = beans[i];
+      if (c === pinned || c.a < 0.05) continue;
+      var ex = c.x - packCX, ey = c.y - packCY;
+      var arx = Math.max(4, packRX * packSoft - c.r);
+      var ary = Math.max(4, packRY * packSoft - c.r);
+      var q = Math.sqrt((ex / arx) * (ex / arx) + (ey / ary) * (ey / ary));
+      if (q > 1){
+        c.x = packCX + ex / q; c.y = packCY + ey / q;
+        c.tx = c.x; c.ty = c.y;
+      }
+    }
+  }
+
+  /* 静止态自检：有没有两圆叠着。
+     只统计「已经落位」的圆（a≈1、r>2）—— 出生时全都从画布中心往外飞，
+     那一段必然互相压着，那不是 bug。tol 给 2px 余量，免得浮点抖动就触发。 */
+  function hasOverlap(tol){
+    var n = beans.length, i, j;
+    for (i = 0; i < n; i++){
+      var a = beans[i];
+      if (a.a < 0.8 || a.r < 2) continue;
+      for (j = i + 1; j < n; j++){
+        var b = beans[j];
+        if (b.a < 0.8 || b.r < 2) continue;
+        var dx = b.x - a.x, dy = b.y - a.y;
+        var need = a.r + b.r - tol;
+        if (dx * dx + dy * dy < need * need) return true;
+      }
+    }
+    return false;
+  }
+
+  /* 松手复原：把所有人的目标位还成按下时的快照。
+     布局结果压根没变（半径没动过），所以不需要再跑一次 packItems ——
+     那才是松手一顿的根源（最坏 15 次全量 settle）。
+
+     按 key 找快照：拖动期间珠子可能被增删（新数据进来 / 有珠子淡出），
+     用下标对位会出现「张冠李戴」—— A 的位置还给了 B，出来就是一堆重叠。 */
+  function restoreHome(d){
+    if (!d.bean) return;      /* 拖的是空白或中心，没有谁的位置被改过，不用还原 */
+    var snap = d.snap;
+    if (!snap) return;
+    var put = 0;
+    for (var i = 0; i < beans.length; i++){
+      var b = beans[i];
+      if (b.pinned){
+        /* 固定雨滴：目标位就设成它此刻的位置，停在拖到的地方不回归。
+           它照样参与 relaxAll 的推挤，只是不再被拉回原处。 */
+        b.tx = b.x;
+        b.ty = b.y;
+        continue;
+      }
+      var s = snap[b.key];
+      if (!s) continue;                 /* 拖动期间新生的珠子，位置本来就干净 */
+      b.tx = s[0];
+      b.ty = s[1];
+      put++;
+    }
+    /* 一个都对不上（整层被换掉了）或拖动期间来过新数据：只能老实重排一次。
+       lastLayoutSig 清空是为了跳过「指纹相同就复用位置」——
+       此刻 beans 上的位置是拖动推挤过的，不是布局结果，复用就是复用一堆重叠。 */
+    if (!put || needsBuild){
+      lastLayoutSig = '';
+      sync();
+      return;
+    }
+    /* 还完快照量一次：万一上面哪条路径没覆盖到（比如固定雨滴被挤到别人身上），
+       这里能兜住 —— 有重叠就重排，而不是把一堆叠着的圆留在屏幕上等用户刷新。
+       只在这个时刻量一次，不做定时轮询，所以没有常驻开销。 */
+    if (beans.length <= 400 && hasOverlap(1)){
+      lastLayoutSig = '';
+      sync();
+    }
+  }
+
+  /* ===== 拖动时：空出来的位置让邻居滑进去 =====
+     圆被手拖走，原位就秃了一块。把那个洞当成一个吸引源：离洞最近的邻居
+     朝洞心滑过去占位，滑的过程中它挤到谁就把谁让开。
+     松手时 restoreHome() 把所有目标位一次性还原，所以这一整段只是视觉流动。
+
+     为什么只让「最近的那一个」动：如果让所有碰到洞的圆一起往里挤，
+     它们会全部收敛到洞心叠成一坨。一个占位，多帧迭代就够了。 */
+  function mendHole(dt){
+    if (!drag || !drag.moved || !drag.bean) return;
+    var vx = drag.homeX, vy = drag.homeY, vr = drag.homeR;
+    var n = beans.length, i;
+    var best = null, bestGap = 1e9, bd = 0;
+
+    for (i = 0; i < n; i++){
+      var b = beans[i];
+      if (b === drag.bean || b.a < 0.05 || b.r < 0.5) continue;
+      var dx = vx - b.x, dy = vy - b.y;
+      var d = Math.sqrt(dx * dx + dy * dy);
+      var gap = d - b.r - vr;            /* 离洞表面还有多远，负数＝已经压进洞里了 */
+      if (gap < bestGap){ bestGap = gap; best = b; bd = d; }
+    }
+    if (!best || bd < 0.5) return;
+    if (bestGap > 90) return;            /* 太远就不硬拉，否则会看到一颗圆从屏幕那头飞过来 */
+
+    /* 朝洞心走「剩余距离」的一个比例，指数收敛，永远不会冲过头 */
+    var PULL = Math.min(0.45, dt * 3.4);
+    var ux = (vx - best.x) / bd, uy = (vy - best.y) / bd;
+    var stp = bd * PULL;
+    best.x += ux * stp; best.y += uy * stp;
+    best.tx += ux * stp; best.ty += uy * stp;
+    /* 它挤到谁，由同一帧的 relaxAll() 统一处理，这里不重复推 */
+  }
+
+  function R0(){ return Math.min(W, H) * P.ring; }
+
+  /* ============ 双树对照：左=磁盘真实，右=映射后所见 ============ */
+  var treeLoaded = false;
+  var treeNodeMap = {};
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function fmtSize(n){
+    if (!n) return '';
+    return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
+  }
+  /* 两列描述的是同一批东西，展开状态必须共用。
+     左列 key 形如 d/3/0，右列 m/3/0 —— 去掉首字母就是同一地址，天然联动。 */
+  function treeAddr(key){
+    return (key.charAt(0) === 'd' || key.charAt(0) === 'm') ? key.slice(1) : key;
+  }
+
+  /* ============ 当前层 / 隐藏层：雨图和树图共用同一份状态 ============
+     两个界面描述的是同一棵树，所以「现在在哪一层」只能有一个变量（curAddr），
+     谁动了都写它，另一边切过去时按它重建 —— 不需要两套状态互相对表。 */
+
+  var curAddr = '';        /* 空串 = 顶级。形如 workbuddy/c-Users-…/sid */
+  var pendAddr = '';       /* 切完数据源之后才落得下去的目标 */
+  var pendReveal = '';     /* 切到树图后要滚到的行 */
+  var hiddenAddr = {};     /* 被眼睛关掉的层（可多层同时关；子层跟着一起不画） */
+  var delPending = '';     /* × 已经点过一次，等第二下 */
+  var LOCK_STATE = { has_pwd: false };   /* 有没有设过密码 —— 决定点锁是「设密码」还是「验密码」 */
+  var lockSet = {};        /* 已锁的 uid。只用来判断图标状态，真正的拦截在后端 */
+  var lockBusy = false;    /* 密码派生要 0.2~0.4 秒，期间不许重复提交 */
+
+  /* 眼睛和叉都用 SVG 描线：换字号不会变成半个字符，也不受字体影响 */
+  var EYE_ON = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"'
+    + ' stroke-linecap="round"><path d="M1.1 6S3 2.9 6 2.9 10.9 6 10.9 6 9 9.1 6 9.1 1.1 6 1.1 6z"/>'
+    + '<circle cx="6" cy="6" r="1.4"/></svg>';
+  var EYE_OFF = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"'
+    + ' stroke-linecap="round"><path d="M1.1 6S3 2.9 6 2.9 10.9 6 10.9 6 9 9.1 6 9.1 1.1 6 1.1 6z" opacity=".5"/>'
+    + '<path d="M2.4 9.6 9.6 2.4"/></svg>';
+
+  /* 锁：和眼睛完全不同的一件事。
+     眼睛 = 「这一层在雨图里不画」（数据还在，接口照给）。
+     锁   = 「接口一律不返回」（AI、搜索、MCP 全拿不到）。
+
+     ★ 两个图标互斥，一个状态一个符号，不许共用：
+       LOCK_OFF = 没锁（线框、锁梁悬空、灰）→ 点它上锁
+       LOCK_ON  = 已锁（实心、锁梁闭合、红）→ 点它解锁
+     共用的话，人就分不清「点下去会锁」还是「它已经锁了」——
+     2026-11-11 犯过这个错：把每行都涂成红实心，信号直接作废。 */
+  var LOCK_OFF = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"'
+    + ' stroke-linecap="round"><rect x="2.6" y="5.4" width="6.8" height="5.1" rx="1.2"/>'
+    + '<path d="M4.35 5.4V4.05a1.65 1.65 0 0 1 3.3 0"/></svg>';
+  var LOCK_ON = '<svg viewBox="0 0 12 12" fill="currentColor" stroke="none">'
+    + '<rect x="2.25" y="5.15" width="7.5" height="5.65" rx="1.5"/>'
+    + '<path d="M4.3 5.15V3.9a1.7 1.7 0 0 1 3.4 0v1.25" fill="none"'
+    + ' stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg>';
+
+  /* 一个节点在「地址」里占哪一段。和 rowsOf 里拼 keyPath 用的是同一套规则，
+     否则树图的行和雨图的圆会对不上号。 */
+  /* 显示名：后端发现同层重名时会补一个 disp（比如 dist/…/live_server.py、
+     「系统通知 · 11-03 10:26」）。这里是唯一的读口 —— 所有画字的地方都走它，
+     否则有的地方用了、有的地方没用，看起来还是重名。 */
+  function dispName(node){
+    if (!node) return '';
+    return node.disp || node.name || '';
+  }
+
+  function addrSeg(node, idx){
+    /* 后端算好的稳定身份优先。回合节点没有 rel/sid/wid，原来只能靠名字兜底 ——
+       24 个「系统通知」因此拿到同一个地址，被算成同一颗圆（不是重名，是并成一颗）。 */
+    if (node.uid) return 'u' + encodeURIComponent(node.uid);
+    if (node.srcKey) return encodeURIComponent(node.srcKey);
+    if (node.wid) return encodeURIComponent(node.wid);
+    /* 文件节点的稳定身份：相对主目录的路径（后端 rel 字段）。
+       为什么不用 name：库里十几个 index.html 会撞成同一个点。
+       为什么不用 sid：那是**会话**的 id，同一个会话里的两个文件会撞。
+       为什么排在这俩后面：文件节点本来就没有 srcKey/wid，顺序无所谓，
+       但放在前面更明确 —— 谁有 rel 谁就是文件。 */
+    if (node.rel) return encodeURIComponent(node.rel);
+    if (node.sid) return node.sid;
+    /* 兜底绝不能用位置序号：列表按 count 排序，次数一变顺序就变，
+       同一个东西的身份也跟着变，圆会莫名其妙「重新出生」。
+       退回名字 —— 可能重名，但至少不会自己跳。 */
+    return 'n' + encodeURIComponent(node.name || '?');
+  }
+  /* 给整棵树盖上地址。两套接口（/api/roots 或 /api/tree 与 /api/columns）
+     拿到的对象不同，但结构同源、顺序一致，所以盖出来的地址能一一对上。 */
+  function stampAddr(node, prefix){
+    node.__addr = prefix;
+    var kids = node.children || [];
+    for (var i = 0; i < kids.length; i++)
+      stampAddr(kids[i], prefix ? prefix + '/' + addrSeg(kids[i], i) : addrSeg(kids[i], i));
+  }
+  /* 懒加载挂上来的孩子必须立刻盖地址。
+     不盖的话 buildItems 会退回 '#位置' 兜底 —— 位置一变圆就「重新出生」，
+     而且树图那边每次 drawTrees 都会全量重盖，两边就对不上了。 */
+  function stampKids(node){
+    if (!node) return;
+    var kids = node.children || [], base = node.__addr || '', i;
+    for (i = 0; i < kids.length; i++)
+      stampAddr(kids[i], base ? base + '/' + addrSeg(kids[i], i) : addrSeg(kids[i], i));
+  }
+  /* 自己或任何一层祖先被关掉 = 不画。关掉父层等于关掉整支 ——
+     否则用户会在雨图里看到「明明关了的库又从别的地方冒出来」。 */
+  function isHidden(addr){
+    if (!addr) return false;
+    var parts = addr.split('/'), acc = '';
+    for (var i = 0; i < parts.length; i++){
+      acc = acc ? acc + '/' + parts[i] : parts[i];
+      if (hiddenAddr[acc]) return true;
+    }
+    return false;
+  }
+  function loadHide(){
+    try {
+      var a = JSON.parse(localStorage.getItem('rd-hidden') || '[]');
+      for (var i = 0; i < a.length; i++) if (a[i]) hiddenAddr[a[i]] = 1;
+    } catch (e) {}
+  }
+  function saveHide(){
+    try { localStorage.setItem('rd-hidden', JSON.stringify(Object.keys(hiddenAddr))); } catch (e) {}
+  }
+
+  /* ============ 锁 ============
+     密码只在输入框里存在，前端算完就扔，本地磁盘上只留 salt + check。
+     点锁 -> 没有密码就先设（设完直接锁上，省一步）-> 之后每次都要验。
+     被锁的节点后端一律不返回，所以锁完这一行会消失 —— 这是有意的，
+     不是 bug。解锁入口是右下角那颗锁（列出所有锁定项）。 */
+  function lockLoad(){
+    return fetch('/api/lock', { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d) return;
+        LOCK_STATE.has_pwd = !!d.has_pwd;
+        lockSet = {};
+        var a = d.locked || [];
+        for (var i = 0; i < a.length; i++) lockSet[a[i]] = 1;
+        lockBtnSync();
+        drawTrees();
+      })
+      .catch(function(){});
+  }
+  /* 这一行在 lockSet 里对应哪个键。
+     后端的身份有几种写法（rel:xxx / wid:xxx / sid:xxx / 原值），
+     按同一优先级逐一试，命中哪个就返回哪个 —— 解锁时原样送回去。 */
+  function lockKeyOf(node){
+    if (!node || !node.__addr) return '';
+    var c = [];
+    if (node.rel) c.push('rel:' + node.rel);
+    if (node.uid) c.push(String(node.uid));
+    if (node.wid) c.push(String(node.wid));
+    if (node.sid) c.push(String(node.sid));
+    if (node.srcKey) c.push(String(node.srcKey));
+    for (var i = 0; i < c.length; i++) if (lockSet[c[i]]) return c[i];
+    return '';
+  }
+
+  /* 表头上的锁定统计。纯统计：不占一行、不进树、没锁定时零占位。
+     点它才弹清单 —— 树上能看见的东西接口就得返回，AI 也就读得到，
+     所以「哪些被锁了」只能停在这层皮上，不能落进数据里。 */
+  function lockBtnSync(){
+    var el = document.getElementById('thlock');
+    if (!el) return;
+    if (!el.__bound){ el.__bound = 1; el.addEventListener('click', lockPanel); }
+    var n = Object.keys(lockSet).length;
+    el.className = n ? 'thlock on' : 'thlock';
+    el.innerHTML = n
+      ? (LOCK_ON + '<span>已锁定 ' + n + ' 项 · 禁止 AI 读取</span>')
+      : '';
+  }
+  function isLocked(addr){ return !!lockSet[addr]; }
+
+  /* 一张卡片解决所有情况，不写多套 UI。
+     forgot 传函数时才显示左下角「忘记密码」——设密码那一步没有忘记这回事。 */
+  function lockDialog(title, hint, okText, onSubmit, forgot){
+    var old = document.getElementById('lockmask');
+    if (old) old.parentNode.removeChild(old);
+    var m = document.createElement('div');
+    m.id = 'lockmask';
+    m.className = 'lockmask';
+    m.innerHTML = '<div class="lockcard">'
+      + '<div class="lh">' + esc(title) + (hint ? ' <em>' + esc(hint) + '</em>' : '') + '</div>'
+      + '<input type="password" class="lpin" autocomplete="new-password" spellcheck="false">'
+      + '<div class="lerr"></div>'
+      + '<div class="lf">'
+      + (forgot ? '<b data-lk="forgot" class="lforgot">忘记密码</b>' : '')
+      + '<b data-lk="cancel">取消</b><b data-lk="ok">' + esc(okText) + '</b></div>'
+      + '</div>';
+    document.body.appendChild(m);
+    var inp = m.querySelector('.lpin');
+    var err = m.querySelector('.lerr');
+    var ok = m.querySelector('[data-lk="ok"]');
+    var cancel = m.querySelector('[data-lk="cancel"]');
+
+    function close(){ if (m.parentNode) m.parentNode.removeChild(m); }
+    function submit(){
+      var v = inp.value || '';
+      if (v.length < 4){ err.textContent = '至少 4 位'; inp.focus(); return; }
+      if (lockBusy) return;
+      lockBusy = true;
+      ok.className = 'busy';
+      ok.textContent = '验证中…';
+      onSubmit(v, function(msg){
+        lockBusy = false;
+        ok.className = '';
+        ok.textContent = okText;
+        if (msg){ err.textContent = msg; inp.select(); }
+        else close();
+      });
+    }
+    ok.addEventListener('click', submit);
+    cancel.addEventListener('click', close);
+    var fg = m.querySelector('[data-lk="forgot"]');
+    if (fg) fg.addEventListener('click', function(){
+      close();
+      askReset(function(){ if (forgot) forgot(); });
+    });
+    m.addEventListener('mousedown', function(e){ if (e.target === m) close(); });
+    inp.addEventListener('keydown', function(e){
+      if (e.key === 'Enter'){ e.preventDefault(); submit(); }
+      else if (e.key === 'Escape'){ e.preventDefault(); close(); }
+    });
+    setTimeout(function(){ inp.focus(); }, 30);
+  }
+
+  /* 忘记密码 = 重置。没有找回，也不假装有。
+     锁防的是「AI 读不到」，不是「防你自己」；你能碰这台机器，
+     就能直接删掉 _lock.json。所以这里唯一诚实的做法是：说清后果，一次点掉。 */
+  function askReset(after){
+    var m = document.getElementById('lockmask');
+    if (m) m.parentNode.removeChild(m);
+    var n = Object.keys(lockSet).length;
+    var box = document.createElement('div');
+    box.id = 'lockmask';
+    box.className = 'lockmask';
+    box.innerHTML = '<div class="lockcard" style="width:312px">'
+      + '<div class="lh">重置密码</div>'
+      + '<div class="lbody">忘记密码只能重置：密码会被清空，'
+      + (n ? '当前锁定的 <b>' + n + '</b> 项全部解开，' : '')
+      + '之后重新设一个。</div>'
+      + '<div class="lnote">重置不需要密码 —— 密钥就在硬盘上。</div>'
+      + '<div class="lf"><b data-lk="cancel">取消</b>'
+      + '<b data-lk="ok">重置</b></div></div>';
+    document.body.appendChild(box);
+    box.querySelector('[data-lk="cancel"]').addEventListener('click', function(){
+      box.parentNode.removeChild(box);
+    });
+    box.addEventListener('mousedown', function(e){
+      if (e.target === box) box.parentNode.removeChild(box);
+    });
+    box.querySelector('[data-lk="ok"]').addEventListener('click', function(){
+      box.parentNode.removeChild(box);
+      fetch('/api/lock/reset', { method: 'POST' })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (!d || !d.ok){ flashTip('重置失败'); return; }
+          LOCK_STATE.has_pwd = false;
+          lockSet = {};
+          lockBtnSync();
+          drawTrees();
+          lockRefreshAll();
+          flashTip('已重置 · 密码和锁定都清空了');
+          if (after) after();
+        })
+        .catch(function(){ flashTip('重置失败'); });
+    });
+  }
+
+  /* 点某一行的锁。传元素而不是地址：后端要的是 rel/sid/wid 原值，
+     地址是编码过的，对不上。 */
+  function lockTargetOf(el){
+    return {
+      rel: el.getAttribute('data-lrel') || '',
+      sid: el.getAttribute('data-lsid') || '',
+      wid: el.getAttribute('data-lwid') || '',
+      uid: el.getAttribute('data-luid') || '',
+      srcKey: el.getAttribute('data-lsrc') || ''
+    };
+  }
+  function askLock(el){
+    var addr = el.getAttribute('data-lock') || '';
+    var tgt = lockTargetOf(el);
+    if (!tgt.rel && !tgt.sid && !tgt.wid && !tgt.uid && !tgt.srcKey){
+      flashTip('这一行没有稳定身份，锁不了');
+      return;
+    }
+    if (!LOCK_STATE.has_pwd){
+      lockDialog('先设一个密码', '只存校验值，密码本身不进磁盘', '设置并锁定', function(pwd, done){
+        fetch('/api/lock/pwd', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ old: '', new: pwd })
+        }).then(function(r){ return r.json(); }).then(function(d){
+          if (!d || !d.ok){ done((d && d.error) || '设置失败'); return; }
+          LOCK_STATE.has_pwd = true;
+          lockApply(pwd, tgt, addr, done);
+        }).catch(function(){ done('设置失败'); });
+      });
+      return;
+    }
+    lockDialog('输入密码以禁止 AI 使用', '', '锁定', function(pwd, done){
+      lockApply(pwd, tgt, addr, done);
+    }, function(){ flashTip('密码已清空，再点一次锁就能重新设'); });
+  }
+  function lockApply(pwd, tgt, addr, done){
+    fetch('/api/lock/toggle', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pwd: pwd, target: tgt })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (!d || !d.ok){ done((d && d.error) || '操作失败'); return; }
+      var _k = d.uid || addr;
+      if (d.locked) lockSet[_k] = 1; else delete lockSet[_k];
+      lockBtnSync();
+      done('');
+      flashTip(d.locked ? '已锁定 · AI 读不到，你照常看' : '已解锁 · AI 可以读了');
+      /* 只重画：这一行本来就没从数据里消失（本人照常看得见），
+         变的只是那颗图标。整棵树重拉反而会闪一下。 */
+      drawTrees();
+    }).catch(function(){ done('操作失败'); });
+  }
+
+  /* 解锁：只有一个入口形状，锁清单和树上那条折叠都走它 */
+  function askUnlock(uid){
+    lockDialog('输入密码为 AI 解锁使用', lockLabel(uid), '解锁', function(pwd, done){
+      lockApply(pwd, { uid: uid }, uid, done);
+    }, function(){ flashTip('密码已清空，锁定全部解开'); });
+  }
+
+  /* 解锁入口：右下角那颗锁。列出所有被锁的项，点一下验密码就能解。
+     没有这个面板的话，锁完就再也点不到了（后端真的不返回它）。 */
+  function lockPanel(){
+    var m = document.getElementById('lockmask');
+    if (m) m.parentNode.removeChild(m);
+    var ids = Object.keys(lockSet);
+    var box = document.createElement('div');
+    box.id = 'lockmask';
+    box.className = 'lockmask';
+    var h = '<div class="lockcard" style="width:320px">'
+      + '<div class="lh">已锁定 <em>' + ids.length + ' 项 · 禁止 AI 读取</em></div>';
+    if (!ids.length){
+      h += '<div class="lerr" style="color:var(--muted)">还没有锁定任何东西。'
+         + '点任意一行右侧的锁图标就能锁。</div>';
+    } else {
+      h += '<div class="lplist">';
+      for (var i = 0; i < ids.length; i++){
+        h += '<div class="lprow"><i>' + LOCK_ON + '</i>'
+           + '<span>' + esc(lockLabel(ids[i])) + '</span>'
+           + '<b data-unlock="' + esc(ids[i]) + '">解锁</b></div>';
+      }
+      h += '</div>';
+    }
+    h += '<div class="lf"><b data-lk="cancel">关闭</b></div></div>';
+    box.innerHTML = h;
+    document.body.appendChild(box);
+    box.querySelector('[data-lk="cancel"]').addEventListener('click', function(){
+      box.parentNode.removeChild(box);
+    });
+    box.addEventListener('mousedown', function(e){ if (e.target === box) box.parentNode.removeChild(box); });
+    var btns = box.querySelectorAll('[data-unlock]');
+    for (var j = 0; j < btns.length; j++){
+      btns[j].addEventListener('click', function(e){
+        var uid = e.currentTarget.getAttribute('data-unlock');
+        box.parentNode.removeChild(box);
+        askUnlock(uid);
+      });
+    }
+  }
+  /* uid 是可读的（工作区名 / rel 路径）就直接显示，sid 这种就截一段 */
+  function lockLabel(uid){
+    var s = String(uid || '');
+    return s.length > 42 ? s.slice(0, 20) + '…' + s.slice(-14) : s;
+  }
+  /* 锁变了之后整棵树要重拉：被锁的节点已经不在接口结果里了，重画没用 */
+  function lockRefreshAll(){
+    if (SOURCE) switchSource(SOURCE);
+    else if (typeof livePull === 'function') livePull();
+  }
+  loadHide();
+  lockLoad();      /* 拉一次锁状态：表头那颗统计和图标提示都要它 */
+
+  /* 眼睛：只切这一层。可以连着关好几层，互不影响；雨图立刻跟着少那几颗。 */
+  function toggleHidden(addr){
+    if (!addr) return;
+    if (hiddenAddr[addr]) delete hiddenAddr[addr];
+    else hiddenAddr[addr] = 1;
+    saveHide();
+    drawTrees();
+    if (MODE !== 'rain') return;
+    /* 关掉的正好是当前层（或它的祖先）→ 退到最近一个还看得见的层 */
+    while (path.length > 1 && isHidden(focusNode().__addr)) path.pop();
+    openGroups = {};
+    drawCrumb();
+    sync();
+  }
+
+  /* 树图里选中的那一行 = 当前层。切到雨图就落在这里。 */
+  function setCur(addr){
+    curAddr = addr || '';
+    var boxes = [tbdEl, tbmEl], i, j, rows;
+    for (i = 0; i < boxes.length; i++){
+      rows = boxes[i].getElementsByClassName('trow');
+      for (j = 0; j < rows.length; j++)
+        rows[j].className = rows[j].className.replace(/\s*\bsel\b/g, '')
+          + ((rows[j].getAttribute('data-addr') || '') === curAddr && curAddr ? ' sel' : '');
+    }
+  }
+
+  /* ×：断开一个导入库。第一下只把叉变红（等第二下），第二下才真断 ——
+     删的是用户自己导进来的东西，一次误点就没了，这一步不能省。
+     文件不真删，移到 sources/_归档/ —— 谁都有点错的时候。 */
+  function askDel(addr){
+    if (delPending !== addr){
+      delPending = addr;
+      drawTrees();
+      flashTip('再点一次，断开这个库');
+      return;
+    }
+    delPending = '';
+    fetch('/api/source/remove?key=' + encodeURIComponent(addr), { method: 'POST' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d || !d.ok){
+          drawTrees();
+          flashTip((d && d.error) || '断开失败');
+          return;
+        }
+        /* 这个库身上的「隐藏」状态一起清掉，否则以后同名导回来会凭空是灰的 */
+        var pre = addr + '/', kk;
+        for (kk in hiddenAddr) if (kk === addr || kk.indexOf(pre) === 0) delete hiddenAddr[kk];
+        saveHide();
+        if (curAddr === addr || curAddr.indexOf(pre) === 0) curAddr = '';
+        if (SOURCE === addr) switchSource('');
+        colsRefresh();
+        flashTip('已断开 ' + (d.label || addr));
+      })
+      .catch(function(){ drawTrees(); flashTip('断开失败'); });
+  }
+  function treeIsOpen(key, depth){
+    var v = treeOpen[treeAddr(key)];
+    /* 默认只展开根（资料库/projects），工作区那一层一律收起 */
+    return v === undefined ? depth < 1 : !!v;
+  }
+  function rowsOf(node, depth, keyPath, out, acts){
+    var kids = node.children || [];
+    /* 会话节点是懒加载的：此刻没加载过明细，但它一定有下钻，所以照样给箭头 */
+    var lazy = (node.kind === 'session' && node.sid);
+    var has = kids.length > 0 || lazy;
+    var open = has && treeIsOpen(keyPath, depth);
+    treeNodeMap[keyPath] = node;
+    node.__key = keyPath;
+    var ad = node.__addr || '';
+    /* 这一行锁没锁 —— 只影响图标，不影响这一行的任何其他东西。
+       锁 = 图层锁：行还在、数字还在、照样能点开，只是 AI 那边读不到。 */
+    var lkKey = lockKeyOf(node);
+    var cls = 'trow' + (has ? ' hit' : '')
+      + (isHidden(ad) ? ' hid' : '')
+      + (ad && ad === curAddr ? ' sel' : '');
+    var h = '<div class="' + cls + '" data-k="' + esc(keyPath) + '" data-d="' + depth + '"'
+      + ' data-addr="' + esc(ad) + '"';
+    h += ' style="padding-left:' + (8 + depth * 13) + 'px">';
+    h += '<span class="tw">' + (has ? (open ? '\u25be' : '\u25b8') : '') + '</span>';
+    h += '<span class="tn' + (node.mono ? ' tmono' : '') + '">' + esc(dispName(node)) + '</span>';
+    if (node.note) h += '<span class="tq">' + esc(node.note) + '</span>';
+    /* 根行不写数字：表头报的已经是同一个数，隔一行再报一遍像两套口径 */
+    if (node.right && depth > 0) h += '<span class="tm">' + esc(node.right) + '</span>';
+    /* 行尾两列按钮只出现在右列（雨图显示的样子）：眼睛管「这一层在雨图里显不显示」，
+       × 管「断开这个库」。根行没有按钮 —— 根不是一个可以被藏掉或删掉的东西。 */
+    if (acts && depth > 0 && ad){
+      var own = !!hiddenAddr[ad];
+      var isLib = (node.kind === 'src' && ad.indexOf('/') < 0);
+      h += '<span class="tacts">';
+      h += '<b class="teye' + (own ? ' on' : '') + '" data-eye="' + esc(ad) + '" title="'
+        + (own ? '取消隐藏：让它在雨滴图中重新出现' : '隐藏：在雨滴图中隐藏')
+        + '">' + (own ? EYE_OFF : EYE_ON) + '</b>';
+      /* 锁：**只有这一个图标随状态变**，这一行的其余部分一点不动。
+         已锁 = 红色实心 + 点它解锁；未锁 = 灰线框 + 点它上锁。
+         未锁那条要把原始字段一起带上 —— 地址是编码过的（Desktop%2F…），
+         后端的身份是 rel:/wid:/sid: 三种原值，拿地址去比对永远对不上。 */
+      if (lkKey){
+        h += '<b class="tlk on" data-unlock="' + esc(lkKey) + '"'
+          + ' title="已锁定：禁止 AI 搜索和操作。点它输密码解锁">' + LOCK_ON + '</b>';
+      } else {
+        h += '<b class="tlk" data-lock="' + esc(ad) + '"'
+          + ' data-lrel="' + esc(node.rel || '') + '"'
+          + ' data-lsid="' + esc(node.sid || '') + '"'
+          + ' data-lwid="' + esc(node.wid || '') + '"'
+          + ' data-luid="' + esc(node.uid || '') + '"'
+          + ' data-lsrc="' + esc(node.srcKey || '') + '"'
+          + ' title="锁定：禁止 AI 搜索和操作，你自己照常用'
+          + (LOCK_STATE.has_pwd ? '' : '（首次需先设密码）')
+          + '">' + LOCK_OFF + '</b>';
+      }
+      /* 示例库和本机会话不是「链接」，没有可断的东西 —— 但槽位照留，图标才对齐 */
+      if (isLib && ad !== 'workbuddy' && ad !== 'csv'){
+        h += '<b class="tdel' + (delPending === ad ? ' on' : '') + '" data-del="' + esc(ad) + '" title="'
+          + (delPending === ad ? '再点一次，断开这个库' : '断开这个库') + '">'
+          + '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2">'
+          + '<path d="M3 3l6 6M9 3l-6 6"/></svg></b>';
+      } else {
+        h += '<b class="tgap"></b>';
+      }
+      h += '</span>';
+    }
+    out.push(h + '</div>');
+    /* 「任务」是透视层：它的子节点直接挂到上一级路径，不额外占一层键身份，
+       这样左列的 c-Users-…-2026-09-26-08-40-05 和右列的任务行仍对得上。 */
+    var base = node.transparent
+      ? keyPath.slice(0, Math.max(1, keyPath.lastIndexOf('/')))
+      : keyPath;
+    if (open) for (var i = 0; i < kids.length; i++){
+      /* 子节点路径用稳定身份（工作区名 / 会话 sid），不用行号 ——
+         左右两列排序一变，行号就会连错行。
+         工作区名里带 /（GonJui/Raindrop Chart），必须编码，否则切分路径会错。 */
+      /* 必须和雨图用同一个 addrSeg。以前这里只认 wid/sid，
+         文件节点落到行号 i —— 于是两个视图各有一套身份：
+         树图的行和雨图的圆对不上号，排序一变文件行的地址也跟着变。 */
+      rowsOf(kids[i], depth + 1, base + '/' + addrSeg(kids[i], i), out, acts);
+    }
+  }
+  /* 悬停联动：两列说的是同一批东西，鼠标压在哪一行，另一边同一行也亮。
+     按共用地址（去掉 d/m 前缀）匹配，不按行号 —— 排序变了也不会亮错。 */
+  var linkRows = [];
+  var linkAddr = null;
+  function clearLink(){
+    for (var i = 0; i < linkRows.length; i++){
+      linkRows[i].className = linkRows[i].className.replace(/\s*link\b/g, '');
+    }
+    linkRows = [];
+    linkAddr = null;
+  }
+  function onTreeHover(e){
+    var row = e.target.closest ? e.target.closest('.trow') : null;
+    if (!row){ clearLink(); return; }
+    var k = row.getAttribute('data-k');
+    if (!k) return;
+    var addr = treeAddr(k);
+    if (addr === linkAddr) return;      /* 在同一行内部移动，不重复扫 */
+    var boxes = [tbdEl, tbmEl], i, j, rows;
+    clearLink();
+    linkAddr = addr;
+    for (i = 0; i < boxes.length; i++){
+      rows = boxes[i].getElementsByClassName('trow');
+      for (j = 0; j < rows.length; j++){
+        if (treeAddr(rows[j].getAttribute('data-k') || '') === addr){
+          rows[j].className += ' link';
+          linkRows.push(rows[j]);
+        }
+      }
+    }
+  }
+  /* 滚动联动：滚哪一列，另一列跟到同一行。
+     不按 scrollTop 比例对齐 —— 右边展开会话后会比左边高，比例会越滚越偏；
+     改成“找出顶部那一行，把另一列滚到同一行”。 */
+  var scrollLock = 0, scrollOwner = '';
+  function syncScroll(which, src, dst){
+    var sRect = src.getBoundingClientRect();
+    var rows = src.getElementsByClassName('trow'), pick = null, i, rr;
+
+    for (i = 0; i < rows.length; i++){
+      rr = rows[i].getBoundingClientRect();
+      if (rr.bottom > sRect.top + 1){ pick = rows[i]; break; }
+    }
+    if (!pick) return;
+
+    var addr = treeAddr(pick.getAttribute('data-k') || '');
+    var drows = dst.getElementsByClassName('trow');
+    for (i = 0; i < drows.length; i++){
+      if (treeAddr(drows[i].getAttribute('data-k') || '') === addr){
+        var dRect = dst.getBoundingClientRect();
+        var off = pick.getBoundingClientRect().top - sRect.top;   /* 保留半截的偏移 */
+        dst.scrollTop += (drows[i].getBoundingClientRect().top - dRect.top) - off;
+        break;
+      }
+    }
+  }
+  function onColScroll(which, src, dst){
+    if (scrollOwner && scrollOwner !== which && Date.now() < scrollLock) return;
+    scrollOwner = which;
+    scrollLock = Date.now() + 120;
+    syncScroll(which, src, dst);
+  }
+
+  function drawTrees(){
+    clearLink();                       /* 行被重建了，旧的引用作废 */
+    var keep1 = tbdEl.scrollTop, keep2 = tbmEl.scrollTop;
+    if (diskTree){ var a = []; stampAddr(diskTree, ''); rowsOf(diskTree, 0, 'd', a, false); tbdEl.innerHTML = a.join(''); }
+    if (libTree){ var b = []; stampAddr(libTree, ''); rowsOf(libTree, 0, 'm', b, true); tbmEl.innerHTML = b.join(''); }
+    tbdEl.scrollTop = keep1; tbmEl.scrollTop = keep2;
+  }
+  function loadTreeSession(node){
+    node.__loaded = true;
+    /* 加载过程不再改状态胶囊：它只报「已连接 + 统计」，
+       过程话会让那一格一直在跳，反而看不清现在到底连没连上 */
+    fetch('/api/session?id=' + encodeURIComponent(node.sid), { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d && d.tree && d.tree.children && d.tree.children.length){
+          node.children = d.tree.children;
+          stampKids(node);
+          treeOpen[treeAddr(node.__key)] = true;
+          drawTrees();
+        } else {
+          node.__loaded = false;
+          /* 静默：到底了不是异常，胶囊继续报统计，不弹这类提示 */
+        }
+      })
+      .catch(function(){ node.__loaded = false; setLive('未识别会话', true); });
+  }
+  function onTreeClick(e){
+    /* 行尾按钮先接：它们不能再触发「点行」—— 点眼睛不该顺手把这一行展开 */
+    var btn = e.target.closest ? e.target.closest('[data-eye],[data-del],[data-lock],[data-unlock]') : null;
+    if (btn){
+      e.stopPropagation();
+      if (btn.hasAttribute('data-eye')) toggleHidden(btn.getAttribute('data-eye'));
+      else if (btn.hasAttribute('data-lock')) askLock(btn);
+      else if (btn.hasAttribute('data-unlock')) askUnlock(btn.getAttribute('data-unlock'));
+      else askDel(btn.getAttribute('data-del'));
+      return;
+    }
+    var row = e.target.closest ? e.target.closest('.trow') : null;
+    if (!row) return;
+    var k = row.getAttribute('data-k');
+    var node = treeNodeMap[k];
+    if (!node) return;
+    /* 点哪一行，当前层就是哪一行 —— 切到雨图就落在这里 */
+    if (row.getAttribute('data-addr')) setCur(row.getAttribute('data-addr'));
+    if (node.kind === 'session' && node.sid && !node.__loaded){
+      loadTreeSession(node);
+      return;
+    }
+    if (!(node.children && node.children.length)) return;
+    /* 深度从 data-d 读：「任务」是透视层，键路径不涨，切分算出来的深度会偏 */
+    var d = parseInt(row.getAttribute('data-d'), 10);
+    if (isNaN(d)) d = k.split('/').length - 1;
+    /* 用共用地址存状态，点左列右列一起展开（本来就是同一个东西） */
+    treeOpen[treeAddr(k)] = !treeIsOpen(k, d);
+    drawTrees();
+  }
+  /* ============ 树图底部的水面波纹 ============
+     现在只做「波纹扩散」这一层：雨滴还没有下落，波纹是定时凭空激起的，
+     用来先把节奏、扁度、消散曲线调顺。手感参数全集中在 RIP 里，改数值即可。
+     等这层定稿，再接「雨滴从上方落到水面、落点处激波」那一层。 */
+  var RIP = {
+    /* 雨丝 */
+    gap: 100,           /* 两根雨丝的间隔(ms)，越小雨越密。实际在 0.6~1.4 倍之间抖 */
+    dropSpeed: 1100,    /* 下落速度(px/s) */
+    dropLen: 22,        /* 雨丝长度(px) */
+    dropAlpha: 0.28,    /* 雨丝透明度 */
+    dropWidth: 1.1,     /* 雨丝线宽 */
+    spread: 0.16,       /* 允许落到屏幕外多少（占宽比例，两端各一半）。
+                           全落在中间会让两侧永远空着，很假 */
+    /* 涟漪 */
+    ring: 2,            /* 一次落水激起几圈同心波 */
+    ringGap: 200,       /* 同心圈之间的时间差(ms) */
+    maxR: 110,          /* 长半轴最多散到多远(px) */
+    squash: 0.30,       /* 压扁比：短半轴 = 长半轴 × 它，越小透视越强 */
+    life: 1800,         /* 一圈从生到完全消失(ms) */
+    width: 1.1,         /* 起始线宽，随扩散变细 */
+    alpha: 0.30,        /* 起始透明度，末端衰减到 0 */
+    rgb: '46,125,138'   /* 和圆点、滑块同一种青 */
+  };
+  var ripEl = document.getElementById('rip');
+  var ripCtx = ripEl ? ripEl.getContext('2d') : null;
+  var ripW = 0, ripH = 0, ripDPR = 1;
+  var ripples = [], drops = [];
+  var ripAcc = 0, ripLast = 0, ripRAF = 0, ripTarget = 130;
+  var ripBase = 0;             /* 水面那条线的 y：雨丝落到这里就换成一圈涟漪 */
+
+  /* ---- 调参面板：只暴露最影响水波手感的那几个数 ---- */
+  var TUNE_SPEC = [
+    ['gap',       '密度',   60,  900,  10, 'ms'],
+    ['dropSpeed', '雨速',  400, 2400,  50, 'px/s'],
+    ['ring',      '圈数',    1,    5,   1, '圈'],
+    ['maxR',      '半径',   40,  240,   4, 'px'],
+    ['squash',    '扁度', 0.10, 0.60, 0.01, ''],
+    ['life',      '寿命',  600, 4000, 100, 'ms'],
+    ['alpha',     '浓度', 0.05, 0.70, 0.01, '']
+  ];
+  var TUNE_DEF = {};
+  for (var _ts = 0; _ts < TUNE_SPEC.length; _ts++) TUNE_DEF[TUNE_SPEC[_ts][0]] = RIP[TUNE_SPEC[_ts][0]];
+
+  var tuneEl = document.getElementById('tune');
+  var tuneBuilt = false;
+  var tuneDrag = null;         /* 拖表头时记下指针与面板左上角的偏移 */
+  var tuneSnapshot = null;     /* 打开面板那一刻的参数快照，× 退出时用它回滚 */
+
+  function tuneFmt(v, step){
+    return step < 0.1 ? (+v).toFixed(2) : String(Math.round(v));
+  }
+  function tuneSpecOf(k){
+    for (var i = 0; i < TUNE_SPEC.length; i++) if (TUNE_SPEC[i][0] === k) return TUNE_SPEC[i];
+    return null;
+  }
+
+  function buildTune(){
+    var h = '<div class="tth"><span>下方雨动画</span><b data-t="cancel" title="直接退出">×</b></div>', i, s, k;
+    for (i = 0; i < TUNE_SPEC.length; i++){
+      s = TUNE_SPEC[i]; k = s[0];
+      h += '<div class="tr"><label>' + s[1] + '</label>'
+        + '<input type="range" data-k="' + k + '" min="' + s[2] + '" max="' + s[3]
+        + '" step="' + s[4] + '" value="' + RIP[k] + '">'
+        + '<b data-v="' + k + '">' + tuneFmt(RIP[k], s[4]) + (s[5] ? ' ' + s[5] : '') + '</b></div>';
+    }
+    h += '<div class="tfoot"><b data-t="reset">恢复默认</b><b data-t="ok">确定</b></div>';
+    tuneEl.innerHTML = h;
+    tuneBuilt = true;
+
+    tuneEl.addEventListener('mousedown', function(e){
+      e.stopPropagation();
+      /* 只有表头能拖 —— 滑块和按钮上按下时不能带动整个面板。
+         表头内部还有标题和 ×，所以要往上找最近的 .tth，不能只看直接目标 */
+      var t = e.target;
+      while (t && t !== tuneEl && String(t.className || '').indexOf('tth') < 0) t = t.parentNode;
+      if (!t || t === tuneEl) return;
+      tuneDrag = {
+        dx: e.clientX - tuneEl.offsetLeft,
+        dy: e.clientY - tuneEl.offsetTop
+      };
+      tuneEl.className = 'on drag';
+      e.preventDefault();
+    });
+    tuneEl.addEventListener('input', function(e){
+      var el = e.target;
+      if (!el || el.tagName !== 'INPUT') return;
+      var k = el.getAttribute('data-k'), s = tuneSpecOf(k);
+      if (!s) return;
+      RIP[k] = parseFloat(el.value);
+      var box = tuneEl.querySelector('b[data-v="' + k + '"]');
+      if (box) box.textContent = tuneFmt(RIP[k], s[4]) + (s[5] ? ' ' + s[5] : '');
+    });
+    tuneEl.addEventListener('click', function(e){
+      var t = e.target.getAttribute('data-t'), i, k;
+      if (t === 'ok'){ closeTune(false); return; }        /* 保留这次改的 */
+      if (t === 'cancel'){ closeTune(true); return; }     /* 回到打开面板前的值 */
+      if (t !== 'reset') return;
+      for (i = 0; i < TUNE_SPEC.length; i++){
+        k = TUNE_SPEC[i][0];
+        RIP[k] = TUNE_DEF[k];
+      }
+      syncTuneUI();
+    });
+  }
+
+  /* 把 RIP 的当前值写回滑块和数字。回滚和恢复默认都要用，所以单拎出来。 */
+  function syncTuneUI(){
+    if (!tuneBuilt) return;
+    for (var i = 0; i < TUNE_SPEC.length; i++){
+      var s = TUNE_SPEC[i], k = s[0];
+      var inp = tuneEl.querySelector('input[data-k="' + k + '"]');
+      if (inp) inp.value = RIP[k];
+      var b = tuneEl.querySelector('b[data-v="' + k + '"]');
+      if (b) b.textContent = tuneFmt(RIP[k], s[4]) + (s[5] ? ' ' + s[5] : '');
+    }
+  }
+
+  function openTune(){
+    if (!tuneBuilt) buildTune();
+    /* 记下打开前的值：× 或 Esc 退出时原样还回去 */
+    tuneSnapshot = {};
+    for (var i = 0; i < TUNE_SPEC.length; i++) tuneSnapshot[TUNE_SPEC[i][0]] = RIP[TUNE_SPEC[i][0]];
+    syncTuneUI();
+    tuneEl.className = 'on';
+    /* 居中弹出。右上角那个位置太偏，离水面也远，看着像挂件不像面板 */
+    var w = tuneEl.offsetWidth, hh = tuneEl.offsetHeight;
+    tuneEl.style.left = Math.round((window.innerWidth - w) / 2) + 'px';
+    tuneEl.style.top = Math.round((window.innerHeight - hh) / 2) + 'px';
+  }
+
+  /* cancel=true 表示不保存：把参数还原成打开面板时的样子。
+     点面板外面关闭算「确定」—— 调完参数顺手点一下空白是最常见的收尾动作，
+     这时候把改动全撤掉会很恼人。 */
+  function closeTune(cancel){
+    if (!tuneEl) return;
+    if (cancel && tuneSnapshot){
+      for (var k in tuneSnapshot) if (tuneSnapshot.hasOwnProperty(k)) RIP[k] = tuneSnapshot[k];
+      syncTuneUI();
+    }
+    tuneSnapshot = null;
+    tuneEl.className = '';
+  }
+
+  function ripResize(){
+    if (!ripEl) return;
+    var r = ripEl.getBoundingClientRect();
+    if (!r.width || !r.height) return;         /* 还在 display:none，等下次 */
+    ripDPR = Math.min(window.devicePixelRatio || 1, 2);
+    ripW = Math.round(r.width); ripH = Math.round(r.height);
+    ripEl.width = Math.round(ripW * ripDPR);
+    ripEl.height = Math.round(ripH * ripDPR);
+    ripCtx.setTransform(ripDPR, 0, 0, ripDPR, 0, 0);
+    /* 水面那条线 = 画布底部往上，留出树图的下留白那么高。
+       这个值跟着 padding 走，窗口变高变矮都自动对得上。 */
+    var padBot = 0;
+    try { padBot = parseFloat(getComputedStyle(twBox).paddingBottom) || 0; } catch (e) {}
+    /* 涟漪中心不能压在「列底边」那条线上，否则椭圆上半截会钻进列表里。
+       水面区 = 底部留白那一段，中心取它的 55% 处，整个椭圆才落得住。 */
+    var waterH = padBot || 110;
+    ripBase = Math.max(60, ripH - waterH) + waterH * 0.55;
+  }
+
+  /* 某点落水：一圈主波 + 几圈余波，半径和时间都递减 */
+  function ripSpawn(now, x, y){
+    for (var i = 0; i < RIP.ring; i++){
+      ripples.push({
+        x: x, y: y,
+        t0: now + i * RIP.ringGap,
+        dur: RIP.life * (1 - i * 0.14),
+        maxR: RIP.maxR * (1 - i * 0.22)
+      });
+    }
+    /* 涟漪叠太多会糊成一片，超过上限就丢最老的 */
+    var cap = RIP.ring * 14;
+    if (ripples.length > cap) ripples.splice(0, ripples.length - cap);
+  }
+
+  /* 一根雨丝：从屏幕上方之外出发，落到水面为止 */
+  function rainSpawn(){
+    var pad = ripW * RIP.spread;
+    drops.push({
+      x: -pad + Math.random() * (ripW + pad * 2),
+      y: -Math.random() * ripBase * 0.5 - 12,
+      v: RIP.dropSpeed * (0.85 + Math.random() * 0.3),
+      len: RIP.dropLen * (0.7 + Math.random() * 0.6),
+      a: RIP.dropAlpha * (0.6 + Math.random() * 0.7)
+    });
+  }
+
+  function ripTick(now){
+    if (!ripCtx) return;
+    if (!ripW || !ripH) ripResize();
+    if (!ripW || !ripH){ ripRAF = requestAnimationFrame(ripTick); return; }
+
+    /* 切回标签页时 now 会跳一大段。不钳住的话所有雨丝会瞬移到水面，
+       同时炸出一片涟漪，看着像卡了一下。 */
+    var dt = Math.min(64, Math.max(0, now - ripLast));
+    ripLast = now;
+
+    ripAcc += dt;
+    var guard = 0;
+    while (ripAcc >= ripTarget && guard++ < 12){
+      ripAcc -= ripTarget;
+      ripTarget = RIP.gap * (0.6 + Math.random() * 0.8);
+      rainSpawn();
+    }
+
+    ripCtx.clearRect(0, 0, ripW, ripH);
+
+    var i, d, keepDrops = [], keep = [], r, k, ease, rx, ry, a, lw, cap;
+
+    /* 雨丝：一条竖线，落到水面就消失并激起涟漪 */
+    ripCtx.lineWidth = RIP.dropWidth;
+    for (i = 0; i < drops.length; i++){
+      d = drops[i];
+      d.y += d.v * dt / 1000;
+      if (d.y >= ripBase){
+        ripSpawn(now, d.x, ripBase);
+        continue;
+      }
+      keepDrops.push(d);
+      ripCtx.beginPath();
+      ripCtx.moveTo(d.x, d.y);
+      ripCtx.lineTo(d.x, d.y - d.len);
+      ripCtx.strokeStyle = 'rgba(' + RIP.rgb + ',' + d.a.toFixed(3) + ')';
+      ripCtx.stroke();
+    }
+    drops = keepDrops;
+
+    /* 涟漪：先快后慢地散开，同时淡出 */
+    for (i = 0; i < ripples.length; i++){
+      r = ripples[i];
+      if (now < r.t0){ keep.push(r); continue; }
+      k = (now - r.t0) / r.dur;
+      if (k >= 1) continue;
+      keep.push(r);
+      ease = 1 - Math.pow(1 - k, 2.4);
+      rx = r.maxR * ease;
+      ry = rx * RIP.squash;
+      a = RIP.alpha * Math.pow(1 - k, 1.5);
+      lw = RIP.width * (1 - k * 0.7);
+      ripCtx.beginPath();
+      ripCtx.ellipse(r.x, r.y, rx, Math.max(ry, 0.4), 0, 0, Math.PI * 2);
+      ripCtx.strokeStyle = 'rgba(' + RIP.rgb + ',' + a.toFixed(3) + ')';
+      ripCtx.lineWidth = Math.max(lw, 0.35);
+      ripCtx.stroke();
+    }
+    ripples = keep;
+
+    ripRAF = requestAnimationFrame(ripTick);
+  }
+
+  function ripStart(){
+    if (!ripCtx || ripRAF) return;
+    ripResize();
+    ripples = [];
+    drops = [];
+    ripAcc = RIP.gap;              /* 进来先落一滴，不用干等一个间隔 */
+    ripTarget = RIP.gap;
+    /* 预热：撒几根已经在半空的雨丝 + 两圈刚散开的涟漪。
+       不预热的话，进树图要干等半秒才见到第一滴水，像卡住了。 */
+    for (var wi = 0; wi < 12; wi++){
+      rainSpawn();
+      drops[drops.length - 1].y = Math.random() * ripBase;
+    }
+    var t0 = performance.now();
+    ripSpawn(t0, ripW * 0.34, ripBase);
+    ripSpawn(t0 + 90, ripW * 0.69, ripBase);
+    ripLast = t0;
+    ripRAF = requestAnimationFrame(ripTick);
+  }
+
+  function ripStop(){
+    if (ripRAF) cancelAnimationFrame(ripRAF);
+    ripRAF = 0;
+    ripples = [];
+    drops = [];
+    if (ripCtx && ripW) ripCtx.clearRect(0, 0, ripW, ripH);
+  }
+
+  /* 两栏一次拉全（/api/columns）：左=磁盘上的链接地址，右=雨图里的库。
+     以前是两次请求（/api/disk + /api/library?source=），只描述当前那一个库 ——
+     新导入的库在这一页上根本不出现，两侧表头数的也是目录/会话，跟「有几个库」无关。 */
+  function treePull(){
+    if (treeLoaded) return;
+    treeLoaded = true;
+    fetch('/api/columns', { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        diskTree = d.disk || null;
+        libTree = d.lib || null;
+        /* 表头只报一件事：这一栏下面有几个「东西」。
+           左栏 = 几个链接地址（每个库在磁盘上的位置），右栏 = 几个库。
+           再往下每行自己带量，表头不重复算第二遍。 */
+        thdEl.textContent = (diskTree && diskTree.right) || '';
+        thmEl.textContent = (libTree && libTree.right) || '';
+        drawTrees();
+        /* 从雨图切过来：把当前层这一支展开、滚到眼前，选中的行常亮 */
+        if (pendReveal){ var pr = pendReveal; pendReveal = ''; treeReveal(pr); }
+      })
+      .catch(function(){
+        tbdEl.innerHTML = '<div class="trow"><span class="tn tq">请双击「Start.vbs」启动</span></div>';
+        tbmEl.innerHTML = '<div class="trow"><span class="tn tq">请双击「Start.vbs」启动</span></div>';
+      });
+  }
+
+  /* 新增一个库之后重拉两栏：两栏必须同时多一行，不能只更新一边。
+     展开状态清掉 —— 多了一个库，旧的行号地址已经不可信。 */
+  function colsRefresh(){
+    treeLoaded = false;
+    treeOpen = {};
+    treePull();
+  }
+
+  /* 从「地址」落到雨图的同一层。
+     地址的第一段是库 key，后面每段是那一层的 wid / sid（跟树图拼 keyPath 同一个规则）。
+     库不同就先切库 —— 数据回来之后 applyLive 会拿 pendAddr 再来一遍，不需要回调队列。 */
+  function applyAddr(addr){
+    addr = addr || '';
+    var parts = addr ? addr.split('/') : [];
+    var lib = parts.length ? parts[0] : '';
+    if (lib !== SOURCE){
+      pendAddr = addr;
+      switchSource(lib);
+      return;
+    }
+    if (!root) return;
+    var chain = [root], cur = root, i, j;
+    for (i = 1; i < parts.length; i++){
+      var kids = cur.children || [], hit = null;
+      for (j = 0; j < kids.length; j++){
+        if (addrSeg(kids[j], j) === parts[i]){ hit = kids[j]; break; }
+      }
+      if (!hit) break;                     /* 段接不上（还没加载 / 已被删）→ 停在上一层 */
+      if (hit.lazyWs && !(hit.children || []).length){
+        wsLoad(hit, function(){ applyAddr(addr); });
+        return;
+      }
+      if (hit.lazy && hit.sid && !(hit.children || []).length){
+        loadSession(hit, function(){ applyAddr(addr); });
+        return;
+      }
+      chain.push(hit);
+      cur = hit;
+    }
+    path = chain;
+    expanded = true;
+    openGroups = {};
+    drawCrumb();
+    sync();
+  }
+
+  /* 切到树图时把当前层这一支展开并滚到眼前。地址的每一级都存成「展开」，
+     否则选中行可能藏在收起的父行里 —— 看得到高亮，却看不到它在哪。 */
+  function treeReveal(addr){
+    if (!addr) return;
+    var parts = addr.split('/'), acc = '', i;
+    for (i = 0; i < parts.length; i++){
+      acc = acc ? acc + '/' + parts[i] : parts[i];
+      treeOpen['/' + acc] = true;
+    }
+    drawTrees();
+    var box = tbmEl;
+    var row = box.querySelector('.trow[data-k="m/' + addr + '"]');
+    if (!row) return;
+    box.scrollTop = Math.max(0, row.offsetTop - box.clientHeight / 2);
+    setCur(addr);
+  }
+  /* 把水滴挪到选中的那个按钮下面。
+     每次都用「按钮相对父容器」实时算，不缓存任何基准 ——
+     之前缓存过一次绝对坐标，结果滑动动画进行中被 resize 里的重测读到，
+     量到的是动画中间值，于是每次落点都偏一点、还会累积漂移。
+     注意只能量 btn 和 mdBox（它们没有 transform），绝不能量 pill 自己。 */
+  function movePill(btn){
+    if (!pillEl || !btn) return;
+    var pr = mdBox.getBoundingClientRect();
+    var br = btn.getBoundingClientRect();
+    if (!pr.width) return;               /* 还没上屏 */
+    /* pill 的 left:0 落在父容器的 padding box 左边缘（即 border 内侧），
+       所以要减掉左边框宽度，才对得上按钮的实测位置 */
+    var bl = parseFloat(getComputedStyle(mdBox).borderLeftWidth) || 0;
+    pillEl.style.left = Math.round(br.left - pr.left - bl) + 'px';
+    pillEl.style.width = btn.offsetWidth + 'px';
+  }
+
+  /* 两种呈现方式互斥，切模式 = 切显示的容器 + 停/启对应的拉取 */
+  function modeSync(){
+    var isRain = (MODE === 'rain');
+    var isTree = (MODE === 'tree');
+    mdBox.className = 'on';
+    twBox.className = isTree ? 'on' : '';
+    cv.style.display = isRain ? 'block' : 'none';
+    adBox.className = 'on' + (adFocused ? ' focus' : '');
+    /* 搜索框静息时就是路径栏；树图没有层级路径，给个位置说明占着 */
+    if (isRain){
+      /* 别写死库名：换了数据源（CSV）还顶着「WorkBuddy资料库」就是在撒谎 */
+      if (path.length) drawCrumb();
+      else crumb.innerHTML = '<b>' + esc(root && root.name ? root.name : '资料库') + '</b>';
+    } else {
+      crumb.innerHTML = '<b style="color:var(--muted)">树图 · 全库</b>';
+    }
+    crumb.style.display = adFocused ? 'none' : 'flex';
+    var mbts = mdBox.getElementsByTagName('b'), i;
+    for (i = 0; i < mbts.length; i++)
+      mbts[i].className = (mbts[i].getAttribute('data-m') === MODE) ? 'on' : '';
+    movePill(mdBox.querySelector('b.on'));
+    /* 底部提示按模式换：树图里没有圆周、也不能拖圆，
+       还写「点开看圆周 · 按住拖动」就是在说另一张页面的事。 */
+    if (hintEl) hintEl.textContent = isTree
+      ? '点行展开 · 悬停看两侧联动 · 右键更多'
+      : '点开看圆周 · 按住拖动 · 右键更多';
+    if (isTree){
+      /* 从雨图切过来：把当前层记下来，两栏拉回来之后展开到那一行 */
+      pendReveal = curAddr || '';
+      treeLoaded = false; treePull(); ripStart();
+    }
+    else ripStop();
+    /* 直接用 #mode=tree 进来时，胶囊可能一次都没被写过 —— 补一次，
+       否则左上角会空一块，看着像“状态栏丢了”。 */
+    if (LIVE && !lvBox.className){
+      setLive(statLine() || '', false);
+    }
+    if (isRain){ resize(); }
+  }
+
+  /* ============ 浏览器历史：侧键 / Alt+← / 后退按钮 统一走 popstate ============
+     旧做法是拦 mousedown/mouseup 的 button 3/4 —— 不可靠：
+     浏览器把侧键解释成历史导航时，mousedown 的 preventDefault 拦不住，
+     mouseup 甚至可能不派发。表现就是「有时候管用，有时候直接退出页面」。
+
+     改成接管历史：每次层级变化 pushState 一条，侧键退回时浏览器发 popstate，
+     我们只接这一种事件。鼠标侧键、键盘 Alt+←、浏览器后退按钮、触控板手势
+     全部自动生效，不需要逐个设备适配。
+
+     快照只存「名字路径」，不存对象引用 —— 1.5 秒轮询会重换整棵树。 */
+  var navSig = '', navLock = false, navInit = false, navPending = null;
+
+  function navSigOf(){
+    var names = [], i;
+    for (i = 0; i < path.length; i++) names.push((path[i] && path[i].name) || '');
+    return SOURCE + '\u0001' + names.join('\u0001');
+  }
+
+  function navTick(){
+    if (navLock) return;
+    var s2 = navSigOf();
+    if (s2 === navSig) return;
+    navSig = s2;
+    try {
+      if (!navInit){ history.replaceState({ rd: s2 }, ''); navInit = true; }
+      else history.pushState({ rd: s2 }, '');
+    } catch (e) {}
+  }
+
+  /* 按名字逐级重建 path。找不到就停在能到的那一层，不抛错。 */
+  function navApply(names){
+    if (!root) return false;
+    path = [root];
+    for (var i = 1; i < names.length; i++){
+      var kids = path[path.length - 1].children || [], hit = null;
+      for (var j = 0; j < kids.length; j++){
+        if (kids[j].name === names[i]){ hit = kids[j]; break; }
+      }
+      if (!hit) break;
+      path.push(hit);
+    }
+    expanded = true;
+    openGroups = {};
+    drawCrumb();
+    sync();
+    return true;
+  }
+
+  function navGoto(st){
+    var rd = st && st.rd;
+    if (!rd) return;
+    var parts = rd.split('\u0001');
+    var src = parts[0], names = parts.slice(1);
+    navLock = true;
+    try {
+      if (src !== SOURCE){
+        /* 跨数据源后退：先切源，路径等树回来再补（applyLive 里认领 navPending） */
+        switchSource(src);
+        navPending = names;
+      } else {
+        navApply(names);
+      }
+    } catch (e) {
+      /* 恢复失败就停在原地，总比整页白掉好 */
+    }
+    navSig = rd;
+    setTimeout(function(){ navLock = false; }, 120);
+  }
+
+  window.addEventListener('popstate', function(e){
+    navGoto(e.state);
+  });
+
+
+  /* ============ 搜索框：会话标题 + 文件名都能搜 ============ */
+  function qBuild(cb){
+    if (qIndex) return cb(qIndex);
+    Promise.all([
+      fetch('/api/library?source=' + SOURCE, { cache: 'no-store' }).then(function(r){ return r.json(); }),
+      fetch('/api/disk', { cache: 'no-store' }).then(function(r){ return r.json(); })
+    ]).then(function(arr){
+      var out = [], lib = arr[0] || {}, dsk = arr[1] || {};
+      var ws = (lib.tree && lib.tree.children) || [], i, j, k;
+      for (i = 0; i < ws.length; i++){
+        var top = ws[i], ks = top.children || [];
+        for (j = 0; j < ks.length; j++){
+          if (ks[j].sid){                       /* 直接是会话 */
+            out.push({
+              kind: 'session', name: ks[j].name || '(无标题)',
+              ws: top.name, chain: [top.name],
+              alias: top.wid || '',          /* 显示名改过，原始键仍要能搜到 */
+              sid: ks[j].sid, steps: ks[j].steps || 0
+            });
+          } else {                              /* 任务：下面还有一层会话 */
+            var ss = ks[j].children || [];
+            for (k = 0; k < ss.length; k++){
+              out.push({
+                kind: 'session', name: ss[k].name || '(无标题)',
+                ws: top.name + ' › ' + ks[j].name,
+                chain: [top.name, ks[j].name],
+                alias: (top.wid || '') + ' ' + (ks[j].wid || ''),
+                sid: ss[k].sid, steps: ss[k].steps || 0
+              });
+            }
+          }
+        }
+      }
+      var dirs = (dsk.tree && dsk.tree.children) || [];
+      for (i = 0; i < dirs.length; i++){
+        var fs = dirs[i].children || [];
+        for (j = 0; j < fs.length; j++){
+          out.push({
+            kind: 'file', name: fs[j].name || '',
+            ws: dirs[i].name, sid: fs[j].sid,
+            alias: dirs[i].wid || '',
+            note: String(fs[j].note || '').replace(/^→\s*/, '')
+          });
+        }
+      }
+      qIndex = out;
+      cb(out);
+    }).catch(function(){ cb([]); });
+  }
+
+  function qRender(hits){
+    if (!hits.length){
+      qList.innerHTML = '<em>没有匹配</em>';
+      qList.className = 'on';
+      qList.__hits = [];
+      return;
+    }
+    var out = [], i, h;
+    for (i = 0; i < hits.length; i++){
+      h = hits[i];
+      if (h.kind === 'file'){
+        out.push('<div data-i="' + i + '"><u class="mono">' + esc(h.name) + '</u>'
+          + '<s>' + esc(h.note.slice(0, 20)) + '</s></div>');
+      } else {
+        out.push('<div data-i="' + i + '"><u>' + esc(h.name) + '</u>'
+          + '<s>' + esc(h.ws) + ' · ' + h.steps + ' 步'
+          + (h.where && h.where !== '标题' ? ' · ' + esc(h.where) : '') + '</s>'
+          + (h.snippet ? '<p class="qsnip">' + esc(h.snippet) + '</p>' : '')
+          + '</div>');
+      }
+    }
+    qList.innerHTML = out.join('');
+    qList.className = 'on';
+    qList.__hits = hits;
+  }
+
+  function qRun(){
+    var kw = (qEl.value || '').trim().toLowerCase();
+    if (!kw){ qList.className = ''; qList.__hits = null; return; }
+    qBuild(function(arr){
+      var hits = [], i, h;
+      for (i = 0; i < arr.length && hits.length < 40; i++){
+        h = arr[i];
+        if (String(h.name).toLowerCase().indexOf(kw) >= 0
+          || String(h.ws).toLowerCase().indexOf(kw) >= 0
+          || String(h.alias || '').toLowerCase().indexOf(kw) >= 0) hits.push(h);
+      }
+      /* 标题命中先在本地算完就画（索引已经在内存里，这是即时的）；
+         正文命中交给服务端算，回来再补 —— 两边合起来才画的话，
+         打字时会有一段什么都看不见的空档。 */
+      if (hits.length) qRender(hits);
+      else { qList.innerHTML = '<em>搜索正文…</em>'; qList.className = 'on'; qList.__hits = []; }
+      qBodySearch(kw, hits);
+    });
+  }
+
+  /* 正文搜索：标题那一层搜的是「这条会话叫什么」，这一层搜的是「里面说过什么」。
+     语料留在服务端（见 live_server 的 /api/search），只回命中会话和上下文片段 ——
+     全库正文几 MB，随首屏下发等于把「打开就卡」写进架构。
+     qSeq 用来丢过期结果：边打边搜时，慢回来的旧请求不能盖住新结果。 */
+  var qSeq = 0;
+  function qBodySearch(kw, base){
+    var my = ++qSeq;
+    fetch('/api/search?limit=40&q=' + encodeURIComponent(kw), { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (my !== qSeq) return;                    /* 已经又打了字，这批作废 */
+        var seen = {}, out = [], got = (d && d.hits) || [], i, h;
+        for (i = 0; i < base.length; i++){ seen[base[i].sid] = 1; out.push(base[i]); }
+        for (i = 0; i < got.length && out.length < 40; i++){
+          h = got[i];
+          if (!h.sid || seen[h.sid]) continue;      /* 标题已经列过，不要出现两遍 */
+          seen[h.sid] = 1;
+          out.push({
+            kind: 'session', name: h.name, ws: h.ws, chain: [h.ws],
+            alias: '', sid: h.sid, steps: h.steps,
+            where: h.where, snippet: h.snippet
+          });
+        }
+        /* 一条都没多出来就不重绘：标题那批已经在屏幕上了，白重绘会闪 */
+        if (!base.length || out.length > base.length) qRender(out);
+      })
+      .catch(function(){ /* 服务没起就算了，标题那批还留着 */ });
+  }
+
+  function qJump(h){
+    qList.className = '';
+    qList.__hits = null;
+    qEl.value = '';
+    adBlur();
+    if (MODE !== 'rain' || VIEW !== 'library'){
+      MODE = 'rain'; VIEW = 'library';
+      modeSync();
+    }
+    function go(){
+      if (!root || !root.children) return;
+      path = [root];
+      expanded = true;
+      openGroups = {};
+      var chain = h.chain || [h.ws];      /* 任务里的会话要下两层 */
+      var step = 0;
+
+      function finish(){
+        var cur = path[path.length - 1], sNode = null, j;
+        for (j = 0; j < (cur.children || []).length; j++)
+          if (cur.children[j].sid === h.sid){ sNode = cur.children[j]; break; }
+        if (sNode){
+          path.push(sNode);
+          drawCrumb();
+          if (sNode.lazy && sNode.sid) loadSession(sNode, function(){ sync(); });
+          else sync();
+        } else {
+          drawCrumb();
+          sync();
+        }
+        spawnRipple(CX, CY, 120, 0.7);
+      }
+
+      function descend(){
+        if (step >= chain.length){ finish(); return; }
+        var cur = path[path.length - 1], kids = cur.children || [], hit = null, i2;
+        for (i2 = 0; i2 < kids.length; i2++)
+          if (kids[i2].name === chain[step]){ hit = kids[i2]; break; }
+        if (!hit){ finish(); return; }         /* 找不到就停在当前层 */
+        if (hit.lazyWs && !(hit.children && hit.children.length)){
+          wsLoad(hit, function(){ path.push(hit); step++; descend(); });
+          return;
+        }
+        path.push(hit); step++; descend();
+      }
+
+      descend();
+    }
+    if (!root || !root.children || !root.children.length){
+      livePull();
+      setTimeout(go, 700);
+    } else {
+      go();
+    }
+  }
+
+  /* 把当前层级拼成一行路径，像资源管理器的地址栏 */
+  function pathText(){
+    var arr = [], i;
+    for (i = 0; i < path.length; i++){
+      if (path[i] && path[i].name) arr.push(path[i].name);
+    }
+    if (arr.length) return arr.join(' › ');
+    /* 树图没有层级路径，退回用说明文字 */
+    return (crumb.textContent || '').trim();
+  }
+
+  function adFocus(){
+    if (adFocused) return;
+    adFocused = true;
+    adBox.className = 'on focus';
+    crumb.style.display = 'none';
+    /* 点空白处＝把整条路径装进输入框并全选：直接打字就是替换，不用先删 */
+    qEl.value = pathText();
+    qList.className = '';
+    qEl.focus();
+    try { qEl.select(); } catch (e) {}
+  }
+
+  function adBlur(){
+    if (!adFocused) return;
+    adFocused = false;
+    adBox.className = 'on';
+    crumb.style.display = 'flex';
+    qList.className = '';
+    qEl.value = '';                 /* 退出输入态就还原成路径显示 */
+    if (qEl.blur) qEl.blur();
+  }
+
+  /* 从服务端拉一次；seq 没变就什么都不做（避免每 1.5 秒抖动一遍） */
+  /* 报到 + 取命令。心跳必须发在 livePull 最前面：
+     树图模式会提前 return，要是心跳放在后面，一切到树图 AI 就以为「雨图关了」。 */
+  function beatPull(){
+    fetch('/api/beat', { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d && d.cmd) applyCmd(d.cmd); })
+      .catch(function(){ /* 服务没起就算了，下一轮再试 */ });
+  }
+
+  /* AI 让雨图跳到某一层。只跳，不做任何高亮 ——
+     qJump 结尾本来就会放一圈波纹，那就是「跳到了」的反馈，再加亮边反而乱。 */
+  function applyCmd(c){
+    if (!c || !c.chain || !c.chain.length) return;
+    if (adFocused) return;                 /* 正在搜索框里打字，别抢焦点 */
+    qJump({ chain: c.chain, sid: c.sid || '' });
+  }
+
+  function livePull(){
+    if (offline) return;                   /* 离线：不拉新数据，画面冻住 */
+    beatPull();
+    if (MODE === 'tree'){ treePull(); return; }
+    var url = (!SOURCE) ? '/api/roots'
+      : (VIEW === 'library')
+        ? '/api/shelves?source=' + SOURCE
+        : '/api/tree?view=' + VIEW;
+    fetch(url, { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d || !d.tree) return;
+        liveFail = 0;
+        /* 服务端可能把 workbuddy 退成了 csv（对方机器没装 WorkBuddy）。
+           以它返回的 source 为准，否则后续请求会一直带着旧源名。 */
+        if (d.source && d.source !== SOURCE) SOURCE = d.source;
+        var sq = d.seq || d.scanned || 0;
+        if (sq === liveSeq) return;
+        liveSeq = sq;
+        var __l0 = PERF ? pfT() : 0;
+        applyLive(d);
+        if (PERF){ pfStat.live = pfT() - __l0; pfStat.liveN = (pfStat.liveN || 0) + 1; }
+      })
+      .catch(function(){
+        liveFail++;
+        setLive('请双击「Start.vbs」启动', true);
+      });
+  }
+
+  /* 会话是个懒加载节点：点开才去读它的明细，不然 99 个会话一次性拉过来是几 MB */
+  var SESSION_PAGE = 200;   /* 一次取多少个回合 —— 超过这个数就分页 */
+  function loadSession(node, cb){
+    if (!node || !node.sid || node.loading) return;
+    node.loading = true;
+    fetch('/api/session?id=' + encodeURIComponent(node.sid) + '&limit=' + SESSION_PAGE,
+          { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        node.loading = false;
+        if (d && d.tree && d.tree.children && d.tree.children.length){
+          node.children = d.tree.children;
+          stampKids(node);
+          node.lazy = false;
+          /* 超大会话只取了第一页 —— 记下总数，供界面提示「还有 N 个回合」 */
+          node.more = (d.tree._total || 0) - (d.tree.children || []).length;
+          cb && cb();
+        } else {
+          /* 静默：到底了不是异常，胶囊继续报统计，不弹这类提示 */
+        }
+      })
+      .catch(function(){
+        node.loading = false;
+        setLive('未识别会话', true);
+      });
+  }
+
+  /* 点工作区时才拉它的会话列表：首屏不再扛 100 个会话 */
+  function wsLoad(node, cb){
+    if (!node || node.__loading) return;
+    node.__loading = true;
+    /* 显示名可能是「任务 · xxx」这类标签，查询要用原始键 wid */
+    fetch('/api/ws?wid=' + encodeURIComponent(node.wid || node.name), { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        node.__loading = false;
+        node.children = (d && d.children) || [];
+        stampKids(node);
+        node.lazyWs = false;
+        if (!node.children.length){
+          setLive('无会话', false);
+          return;
+        }
+        cb && cb();
+      })
+      .catch(function(){
+        node.__loading = false;
+        setLive('未识别工作区', true);
+      });
+  }
+
+  function applyLive(d){
+    var m = d.meta || {};
+    if (d.stepUnit) STEP_UNIT = d.stepUnit;
+
+    /* 按 name 保住当前下钻位置；保不住就退回根 */
+    var oldPath = path.slice();
+    var names = [];
+    for (var i = 1; i < oldPath.length; i++) names.push(oldPath[i].name);
+    /* 从浏览器历史退回来时，目标路径在历史里，不在当前 path 里 */
+    if (navPending){ names = navPending.slice(1); navPending = null; }
+    var keepGroups = openGroups;
+
+    root = d.tree;
+    clearFresh(root);
+    /* 盖地址：树图那边用的是同一套段规则，两边对得上号。
+       前缀取「这份数据自己的源」，不是当前的 SOURCE ——
+       快速切库时两轮请求会错开到达，拿 SOURCE 盖章会把别人家的地址盖到自己头上。 */
+    stampAddr(root, (d.source !== undefined ? d.source : SOURCE) || '');
+
+    path = [root];
+    for (var n = 0; n < names.length; n++){
+      var hit = null, kids = path[path.length - 1].children || [];
+      for (var j = 0; j < kids.length; j++) if (kids[j].name === names[n]){ hit = kids[j]; break; }
+      if (!hit) break;
+      /* 工作区的会话是点开才拉进 children 的，新树里都是空的。
+         不补回来，每 1.5 秒轮询一次就会把用户正在看的会话层冲掉。 */
+      var prev = oldPath[n + 1];
+      if (prev && prev.children && prev.children.length
+          && (!hit.children || !hit.children.length)){
+        hit.children = prev.children;
+        hit.lazyWs = false;
+      }
+      path.push(hit);
+    }
+
+    /* 新到的事件 = 时间戳晚于上次看到的。首次加载不落雨滴。 */
+    var steps = collectSteps(root, []);
+    var newest = maxAt(steps);
+    var fresh = 0, i2, sp;
+    if (liveReady){
+      for (i2 = 0; i2 < steps.length; i2++){
+        sp = steps[i2];
+        if ((sp.at || 0) > lastSeenAt){ sp.__fresh = 1; fresh++; }
+      }
+    }
+    lastSeenAt = newest;
+
+    /* 只在真的新增时才重置合并展开状态，否则用户正在看的展开会被打断 */
+    if (fresh > 0) openGroups = {};
+    else openGroups = keepGroups;
+
+    liveReady = true;
+    needsBuild = true;
+    pulseAt = Date.now();          /* 记账：这一轮是数据刷新，允许变化的圆冒涟漪 */
+
+    /* #into=N —— 直接下钻到第 N 个回合，可分享“某个回合”的视图
+       #into=1.2 —— 点分路径，逐层下钻（第 1 个孩子的第 2 个孩子）。
+       两级写法是后加的：截图和「分享到某一层」都需要一次落到底，
+       只支持一级就得点两下鼠标，链接也就没法整段复制。 */
+    if (!intoDone){
+      var mm = /[#&]into=(\d+(?:\.\d+)*)/.exec(location.hash);
+      if (mm){
+        var segs = mm[1].split('.'), p = [root], walked = true;
+        for (var si = 0; si < segs.length; si++){
+          var nx = ((p[p.length - 1] || {}).children || [])[+segs[si]];
+          if (!nx){ walked = false; break; }
+          p.push(nx);
+        }
+        if (walked && p.length > 1){
+          path = p;
+          expanded = true;
+          intoDone = true;
+        }
+      }
+    }
+
+    drawCrumb();
+
+    /* 从树图切过来时带着一个目标地址：新树已经就位，现在真正落下去。
+       放在按名字恢复之后 —— 名字只是「别丢层」，地址才是「就要这一层」。 */
+    if (pendAddr){ var pa = pendAddr; pendAddr = ''; applyAddr(pa); }
+
+    /* 每次拉取的记账，用于验证增量；#probe 时挂到 title 上 */
+    if (!window.__log) window.__log = [];
+    window.__log.push({ calls: steps.length, fresh: fresh, at: newest });
+    if (/[#&]probe/.test(location.search + location.hash)){
+      document.title = 'LOG ' + JSON.stringify(window.__log);
+    }
+
+    var secs = 0, i3;
+    for (i3 = 0; i3 < steps.length; i3++) secs += steps[i3].value || 0;
+    if (/[#&]dump/.test(location.search + location.hash)){
+      setTimeout(function(){
+        /* 延时放宽到 2.5s：300ms 时首帧可能还没重建完，抓到的是一棵旧树 */
+        var f = focusNode();
+        document.title = JSON.stringify({
+          W: W, H: H, R: Math.min(W,H)*P.ring,
+          focus: f && f.name, kids: f && (f.children||[]).length,
+          beans: beans.map(function(b){
+            return { k: b.key.slice(0,12), x: Math.round(b.x), y: Math.round(b.y),
+                     r: Math.round(b.r*10)/10, d: Math.round(Math.hypot(b.x-CX, b.y-CY)) };
+          })
+        });
+      }, 2500);
+    }
+    /* 统计只报当前层和下一层，见 statLine() */
+    var stat = statLine();
+    setLive(stat || '', false);
+  }
+
+  function drawCrumb(){
+    var html = '';
+    /* 进了某个库，前面挂一个回顶级的入口 —— 否则点进去就出来，
+       只能刷新页面。data-i=-1 是这一档的固定标记。 */
+    if (SOURCE) html += '<b data-i="-1">Raindrop Chart</b><i>›</i>';
+
+    for (var i = 0; i < path.length; i++){
+      if (i) html += '<i>›</i>';
+      html += '<b data-i="' + i + '">' + path[i].name + '</b>';
+    }
+    crumb.innerHTML = html;
+  }
+
+  function spawnRipple(x, y, r, power){
+    /* 快照模式不画涟漪：它是 600ms 的过场动画，定住以后会变成一个大圆
+       穿过后面的珠子，每次截图都得解释一遍「这不是 bug」。 */
+    if (SNAP) return;
+    ripples.push({ x: x, y: y, r0: r * 0.6, r1: r * (1.6 + power * 0.5), t: 0, life: 620 + power * 220 });
+    if (power > 0.7) ripples.push({ x: x, y: y, r0: r * 0.45, r1: r * 2.05, t: -90, life: 760 });
+  }
+
+  function hitTest(mx, my){
+    var i, alive = 0;
+    for (i = 0; i < beans.length; i++) if (beans[i].ta > 0.02) alive++;
+    /* 中心只在它真被画出来时才算可点，否则会挡住所有珠子 */
+    if (!alive && Math.hypot(mx - CX, my - CY) <= R0()) return { kind: 'center' };
+    for (i = beans.length - 1; i >= 0; i--){
+      var b = beans[i];
+      if (b.a < 0.4) continue;
+      if (Math.hypot(mx - b.x, my - b.y) <= b.r) return { kind: 'bead', bean: b };
+    }
+    return null;
+  }
+
+  function drawCenter(){
+    var f = focusNode();
+    /* 子体铺开时父体让位：不再画那个大圆，画面全留给子体。
+       只数还活着的珠子 —— 退场中的 bean 会留在数组里，不能拿 length 判断。 */
+    var alive = 0, q;
+    for (q = 0; q < beans.length; q++) if (beans[q].ta > 0.02) alive++;
+    if (alive) return;
+
+    var R = R0();
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, TAU);
+    ctx.fillStyle = hoveredKey === 'center' ? TC.dotHi : TC.dot;
+    ctx.fill();
+    ctx.strokeStyle = hoveredKey === 'center' ? TC.brdHi : TC.brd;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    var g = ctx.createLinearGradient(CX - R, CY - R, CX + R, CY + R);
+    g.addColorStop(0, TC.hl);
+    g.addColorStop(.55, 'rgba(255,255,255,0)');
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, TAU);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.stroke();
+
+    if (!f) return;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = TC.ink;
+    ctx.font = '500 15px system-ui,-apple-system,"PingFang SC",sans-serif';
+    ctx.fillText(f.name, CX, expanded ? CY - 6 : CY - 4);
+    ctx.fillStyle = TC.sub;
+    ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+    ctx.fillText(expanded ? wtext(f) : '点一下展开', CX, expanded ? CY + 12 : CY + 14);
+  }
+
+  /* 高光贴图：只生成一次，之后每帧复用（圆形裁切，圆外透明） */
+  var HL = null;
+  function makeHighlight(){
+    var s2 = 512;
+    var c2 = document.createElement('canvas');
+    c2.width = c2.height = s2;
+    var g2 = c2.getContext('2d');
+    g2.beginPath();
+    g2.arc(s2 / 2, s2 / 2, s2 / 2, 0, TAU);
+    g2.clip();
+    var lg = g2.createLinearGradient(0, 0, s2, s2);
+    lg.addColorStop(0, TC.hl);
+    lg.addColorStop(.55, 'rgba(255,255,255,0)');
+    g2.fillStyle = lg;
+    g2.fillRect(0, 0, s2, s2);
+    return c2;
+  }
+
+  /* ===== 合并珠那两行小字（「2000 个 · 13238 步」）的统计 =====
+     原来是在 drawBeans 里现算的：每帧都要把 group 数组从头遍历两三遍。
+     foldOvers 折出来的聚合珠，一个就有两千多个成员（实测那个
+     13238 步的会话就是这样），于是每帧六千多次运算 —— 雨图掉帧只是表面，
+     真正的影响是**整条主线程被占住，连树图都跟着卡**。
+     统计只跟 group 的内容有关，缓存在珠子上，group 换了才重算。 */
+  var GK_UNIT = { workspace: ' 个工作区', session: ' 个会话', turn: ' 轮',
+                  file: ' 个文件' };
+  function groupStat(d){
+    var g = d.group;
+    var sig = g.length + '|' + (g[0] ? (g[0].__addr || g[0].name || '') : '');
+    if (d.__gSig === sig && d.__gS) return d.__gS;
+
+    var gk0 = (g[0] && g[0].kind) || 'step';
+    var steps = 0, sec = 0, i, gm, cnt;
+    for (i = 0; i < g.length; i++){
+      gm = g[i];
+      if (gm.kind === 'turn' || (gm.children && gm.children.length))
+        steps += (gm.children || []).length;
+      sec += gm.value || 0;
+    }
+    var sub;
+    if (gk0 === 'workspace' || gk0 === 'session'){
+      cnt = 0;
+      for (i = 0; i < g.length; i++) cnt += (g[i].steps || 0);
+      sub = cnt + ' 步';
+    } else if (gk0 === 'turn'){
+      sub = steps + ' 步';
+    } else if (gk0 === 'file'){
+      cnt = 0;
+      for (i = 0; i < g.length; i++) cnt += (g[i].count || 0);
+      sub = cnt + ' 次';
+    } else {
+      sub = fmtSec(sec);
+    }
+    d.__gSig = sig;
+    d.__gS = { n: g.length, sub: sub, unit: gk0 };
+    return d.__gS;
+  }
+
+  /* ---- 字体/虚线常量：font 赋值是 Canvas2D 里最贵的状态变更之一
+     （每次都触发字体解析），常量化 + 「变了才赋」，一帧从几百次降到个位数 ---- */
+  var F10 = '500 10px system-ui,-apple-system,"PingFang SC",sans-serif';
+  var F11 = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+  var F12 = '500 12px system-ui,-apple-system,"PingFang SC",sans-serif';
+  var F13 = '500 13px system-ui,-apple-system,"PingFang SC",sans-serif';
+  var F14 = '500 14px system-ui,-apple-system,"PingFang SC",sans-serif';
+  var DASH = [3, 3], NDASH = [];
+  var RING = null;                       /* 合并珠虚线环的颜色，懒拼接 */
+
+  function drawBeans(){
+    var i, d, m;
+    var n = beans.length;
+    if (!RING) RING = 'rgba(' + TC.accentRgb + ',.40)';
+
+    /* ---- pass 0：展开层连线。虚线整个 pass 只设一次 ---- */
+    ctx.globalAlpha = 1;
+    ctx.setLineDash(DASH);
+    ctx.strokeStyle = TC.line;
+    ctx.lineWidth = 1;
+    var hostMap = null;
+    for (i = 0; i < n; i++){
+      var b = beans[i];
+      if (!b.lane || b.a < 0.05) continue;
+      /* host 原来是内层再扫一遍 beans，等于每帧 O(n²) 次字符串比较（n=300 时 9 万次）。
+         建一次索引就够，不用每根线都重扫。 */
+      if (!hostMap){
+        hostMap = {};
+        for (m = 0; m < n; m++) hostMap[beans[m].key] = beans[m];
+      }
+      var host = hostMap[b.hostKey];
+      if (!host) continue;
+      ctx.beginPath();
+      ctx.moveTo(host.x, host.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.setLineDash(NDASH);
+
+    /* 被拖的那个排到最后画，否则穿过密集区会被后画的圆盖住一角 */
+    var order = beans;
+    if (drag && drag.moved && drag.bean){
+      order = [];
+      for (i = 0; i < n; i++) if (beans[i] !== drag.bean) order.push(beans[i]);
+      order.push(drag.bean);
+    }
+
+    /* ---- pass 1：圆体 + 高光。
+       原来每颗圆一对 save/restore（n=224 时每帧 448 次状态栈操作）。
+       这里所有用到的状态都由各 pass 自己负责，不存在泄漏，
+       唯一需要归位的 globalAlpha 用「用完归位」处理。 ---- */
+    for (i = 0; i < order.length; i++){
+      d = order[i];
+      if (d.a < 0.02 || d.r < 0.4) continue;
+      if (d.a < 0.999) ctx.globalAlpha = d.a;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, TAU);
+      ctx.fillStyle = (hoveredKey === d.key) ? TC.dot2Hi : TC.dot2;
+      ctx.fill();
+      ctx.strokeStyle = (hoveredKey === d.key) ? TC.brdHi : TC.brd2;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      /* 高光改成预生成贴图 + drawImage。
+         原来是每帧给每个圆 createLinearGradient：72 个圆 × 60 帧 = 4320 次/秒，
+         每次都要分配新渐变对象并触发 GC，是 Canvas2D 里最贵的调用之一。 */
+      if (d.r >= 6){
+        if (!HL) HL = makeHighlight();
+        ctx.drawImage(HL, d.x - d.r, d.y - d.r, d.r * 2, d.r * 2);
+      }
+      if (d.a < 0.999) ctx.globalAlpha = 1;
+    }
+
+    /* ---- pass 2：合并珠的虚线外环。
+       原来 setLineDash 在每颗合并珠里设两次 —— n 大时一帧几百次状态切换。
+       现在整个 pass 只设两次。 ---- */
+    ctx.setLineDash(DASH);
+    ctx.strokeStyle = RING;
+    ctx.lineWidth = 1;
+    for (i = 0; i < order.length; i++){
+      d = order[i];
+      if (!d.group || d.a < 0.02 || d.r < 0.4) continue;
+      if (d.a < 0.999) ctx.globalAlpha = d.a;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r + 4.5, 0, TAU);
+      ctx.stroke();
+      if (d.a < 0.999) ctx.globalAlpha = 1;
+    }
+    ctx.setLineDash(NDASH);
+
+    /* ---- pass 3：文字。font/textAlign/textBaseline/fillStyle 变了才赋 ---- */
+    var lastFont = '', lastAlign = null, lastBase = null, lastFill = null;
+    for (i = 0; i < order.length; i++){
+      d = order[i];
+      if (d.a < 0.02 || d.r < 0.4) continue;
+      if (d.a < 0.999) ctx.globalAlpha = d.a;
+      if (d.lane){
+        var c = Math.cos(d.ang || 0);
+        var al = (c < -0.15) ? 'right' : (c > 0.15 ? 'left' : 'center');
+        if (lastAlign !== al){ ctx.textAlign = al; lastAlign = al; }
+        if (lastBase !== 'middle'){ ctx.textBaseline = 'middle'; lastBase = 'middle'; }
+        if (lastFont !== F11){ ctx.font = F11; lastFont = F11; }
+        if (lastFill !== TC.ink2){ ctx.fillStyle = TC.ink2; lastFill = TC.ink2; }
+        ctx.fillText(dispName(d.node),
+          d.x + c * (d.r + 9), d.y + Math.sin(d.ang || 0) * (d.r + 9));
+      } else if (d.r >= 20){
+        var maxW = d.r * 1.42;
+        if (lastBase !== 'alphabetic'){ ctx.textBaseline = 'alphabetic'; lastBase = 'alphabetic'; }
+        if (lastAlign !== 'center'){ ctx.textAlign = 'center'; lastAlign = 'center'; }
+        if (d.group){
+          var gst = groupStat(d);
+          if (lastFont !== F12){ ctx.font = F12; lastFont = F12; }
+          if (lastFill !== TC.ink2){ ctx.fillStyle = TC.ink2; lastFill = TC.ink2; }
+          ctx.fillText(gst.n + (GK_UNIT[gst.unit] || ' 项'), d.x, d.y - 1);
+          if (lastFill !== TC.sub){ ctx.fillStyle = TC.sub; lastFill = TC.sub; }
+          ctx.fillText(gst.sub, d.x, d.y + 14);
+        } else {
+          var fnt = d.r >= 62 ? F14 : (d.r >= 40 ? F13 : (d.r >= 26 ? F11 : F10));
+          if (lastFont !== fnt){ ctx.font = fnt; lastFont = fnt; }
+          if (lastFill !== TC.ink2){ ctx.fillStyle = TC.ink2; lastFill = TC.ink2; }
+          /* 裁剪结果直接挂在珠子上：宽度没变、名字没变就不重算。
+             走全局 fitCache 也行，但那个要每帧拼 224 个 key 字符串，
+             GC 压力反而成了新的卡顿源。 */
+          var nm = dispName(d.node);
+          var mw = maxW | 0;
+          if (d.__fitW !== mw || d.__fitN !== nm){
+            d.__fitW = mw;
+            d.__fitN = nm;
+            d.__fitT = fitText(nm, maxW);
+          }
+          ctx.fillText(d.__fitT, d.x, d.y + 4);
+        }
+      }
+      if (d.a < 0.999) ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawRipples(dt){
+    for (var i = ripples.length - 1; i >= 0; i--){
+      var rp = ripples[i];
+      rp.t += dt * 1000;
+      if (rp.t < 0) continue;
+      var k = rp.t / rp.life;
+      if (k >= 1){ ripples.splice(i, 1); continue; }
+      var e = 1 - Math.pow(1 - k, 3);
+      ctx.beginPath();
+      ctx.arc(rp.x, rp.y, rp.r0 + (rp.r1 - rp.r0) * e, 0, TAU);
+      ctx.strokeStyle = 'rgba(' + TC.accentRgb + ',' + ((1 - k) * 0.45).toFixed(3) + ')';
+      ctx.lineWidth = 1 + (1 - k) * 1.1;
+      ctx.stroke();
+    }
+  }
+
+  function step(now){
+    if (needsBuild){
+      var __s0 = PERF ? pfT() : 0;
+      sync();
+      if (PERF){ pfStat.sync = pfT() - __s0; pfStat.syncN++; }
+    }
+
+    /* 帧统计：只记账不画东西，代价是几次减法 */
+    if (PERF){
+      pfStat.frames++;
+      if (pfStat.t1){
+        var ft = now - pfStat.t1;
+        if (ft > pfStat.fMax) pfStat.fMax = ft;
+        var el = now - pfStat.t0;
+        if (el > 600){
+          pfStat.fps = pfStat.frames * 1000 / el;
+          pfStat.frames = 0;
+          pfStat.t0 = now;
+          pfShow();
+        }
+      } else {
+        pfStat.t0 = now;
+      }
+      pfStat.t1 = now;
+    }
+
+    /* 树图模式下雨图不渲染。
+       原来这里没有判断：切到树图以后，雨图的 rAF 循环照样每帧清屏、
+       照样把上百颗珠子画一遍 —— 画的东西还在屏幕外，纯烧 CPU，
+       于是树图自己也跟着卡。数据同步照跑（上面那行 sync），只是不画。 */
+    if (MODE === 'tree'){
+      requestAnimationFrame(step);
+      return;
+    }
+
+    var dt = lastT ? (now - lastT) / 1000 : 0.0167;
+    lastT = now;
+    if (dt > 0.05) dt = 0.05;
+    if (dt < 0.001) dt = 0.001;
+
+    ctx.clearRect(0, 0, W, H);
+
+    if (!root){
+      ctx.save();
+      ctx.fillStyle = TC.sub;
+      ctx.font = '13px system-ui,-apple-system,"PingFang SC",sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('未注入流程树', CX, CY - 8);
+      ctx.fillStyle = TC.sub;
+      ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+      ctx.fillText('在 data.js 填 RAINDROP_TREE', CX, CY + 14);
+      ctx.restore();
+      requestAnimationFrame(step);
+      return;
+    }
+
+    var k = 1 - Math.pow(0.0016, dt);
+    for (var i = beans.length - 1; i >= 0; i--){
+      var b = beans[i];
+      b.x += (b.tx - b.x) * k;
+      b.r += (b.tr - b.r) * k;
+      b.a += (b.ta - b.a) * k;
+
+      /* 新到的事件：竖直坠落。坠落期间 y 直接跟住，落地后交回弹簧 */
+      if (b.gy < 0){
+        b.gv += 2600 * dt;
+        b.gy += b.gv * dt;
+        if (b.gy >= 0){
+          b.gy = 0; b.gv = 0;
+          spawnRipple(b.tx, b.ty, b.tr, 0.35 + Math.min(1, b.tr / 60));
+        } else {
+          b.y = b.ty + b.gy;
+        }
+      } else {
+        b.y += (b.ty - b.y) * k;
+      }
+
+      if (b.ta === 0 && b.a < 0.02) beans.splice(i, 1);
+    }
+
+    /* 拖动期间：先把空位补上，再让所有圆两两让开。
+       顺序不能反 —— 先推后补，补进来的那个就会压在别人身上没人管。
+       不拖动时这两个函数一次都不跑，平时零成本。
+
+       注意这里**不能**改成「静止时每半秒自检一遍再推」：那等于给页面挂了一个
+       永不停止的定时开销，而且只要判定阈值稍宽一点（比如 2px），排好的图也会
+       被判成重叠，于是每半秒推一次、圆一直在微动，看着就是「很卡」。
+       真正的兜底放在 restoreHome 末尾：松手那一刻量一次，有问题就重排。 */
+    if (drag && drag.moved){
+      mendHole(dt);
+      relaxAll();
+    }
+
+    drawCenter();
+    drawBeans();
+    drawRipples(dt);
+
+    requestAnimationFrame(step);
+  }
+
+  /* ---------------- 交互 ---------------- */
+
+  /* ============ 右键菜单 ============ */
+  function copyText(t){
+    t = String(t == null ? '' : t);
+    if (!t) return false;
+    try{
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(t);
+        return true;
+      }
+    }catch(e){}
+    /* 老浏览器兜底：临时 textarea + execCommand */
+    var ta = document.createElement('textarea');
+    ta.value = t;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e2) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  /* 这颗珠子在层级里的完整路径。合并出来的珠子没有单一节点，返回空串。 */
+  function beanPath(bean){
+    if (!bean || !bean.node || !bean.node.name) return '';
+    var arr = [], i;
+    for (i = 0; i < path.length; i++) if (path[i] && path[i].name) arr.push(path[i].name);
+    arr.push(bean.node.name);
+    return arr.join(' › ');
+  }
+
+  function flashTip(text){
+    tipHTML = '<div class="th">' + esc(text) + '</div>';
+    tip.innerHTML = tipHTML;
+    tip.style.left = ctxX + 'px';
+    tip.style.top = ctxY + 'px';
+    tip.style.transform = 'translate(-50%,-150%)';
+    tip.style.opacity = '1';
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(function(){ tip.style.opacity = '0'; }, 1100);
+  }
+
+  function ctxItem(act, label, note, cls){
+    return '<i data-act="' + act + '"' + (cls ? ' class="' + cls + '"' : '') + '>'
+      + '<span>' + esc(label) + '</span>'
+      + (note ? '<s>' + esc(note) + '</s>' : '')
+      + '</i>';
+  }
+
+  /* 带二级菜单的项：右边不写说明文字，只留一个箭头 —— 说明写进下一层，
+     父层再写一遍「文件 / 文件夹」就是在替下一层做决定，反而把箭头挤小。 */
+  function ctxSub(label){
+    return '<i data-act="addsrc" class="sub"><span>' + esc(label) + '</span></i>';
+  }
+
+  /* 「新增数据源」的两个入口。
+     原来是二级子菜单（点一下「新增数据源」才弹出两个选项），
+     层级多一层、多点一次。现在直接平级列出来 —— 就两行字，
+     藏进子菜单反而让人先看到标题、再点一次才知道能干什么。
+     位置固定在「离线/实时」那一项下面。 */
+  function srcRows(){
+    return ctxItem('addsrc-file', '新增数据源 · CSV', '导入成一个库') +
+           ctxItem('addsrc-dir', '新增数据源 · 文件夹', '目录结构就是树');
+  }
+
+  /* 六套主题的清单：名字 / 悬停说明。色块的颜色不在这里 ——
+     它取的是各套主题的「圆面色 + 圆描边」，写在 :root 的 --t-*-face/edge
+     和 #ctx .sw[data-theme] 上，与雨滴本身同源，改一处两边一起变。
+     顺序固定 蓝-绿-米白-粉-紫-黑；加新主题要三处一起加：
+     这里一条、CSS 一块 html[data-theme=...]、一条 .sw[data-theme=...]。 */
+  var THEMES = [
+    ['blue',   '蓝 · 冷白底 + 蓝主色'],
+    ['green',  '绿 · 草木'],
+    ['beige',  '米白 · 最初那版纸色青'],
+    ['pink',   '粉 · 樱'],
+    ['purple', '紫 · 藕'],
+    ['dark',   '黑 · 深底青主色']
+  ];
+
+  /* 主题行：左边一个词，右边六个色块。色块没字，靠 title 说清是哪套。 */
+  function themeRow(){
+    var s = '<div class="cxrow"><span>主题</span><div class="sww">', i;
+    for (i = 0; i < THEMES.length; i++){
+      s += '<b class="sw' + (themeSel === THEMES[i][0] ? ' on' : '') + '"'
+        + ' data-theme="' + THEMES[i][0] + '"'
+        + ' title="' + THEMES[i][1] + '"></b>';
+    }
+    return s + '</div></div>';
+  }
+
+  /* 把当前主题的 Canvas 色读进来。CSS 里 --cv-* 每套主题各定义了一份，
+     这里只在切换时取一次，绘制循环直接用 TC，不再碰 DOM。
+     高光贴图是预渲染的（带着当时的白度），换主题必须作废重建，否则换到深底那套圆点会发白。 */
+  function readTheme(){
+    var cs = getComputedStyle(document.documentElement);
+    function v(n){ return cs.getPropertyValue(n).trim(); }
+    TC.dot     = v('--cv-dot');
+    TC.dotHi   = v('--cv-dot-hi');
+    TC.dot2    = v('--cv-dot2');
+    TC.dot2Hi  = v('--cv-dot2-hi');
+    TC.brd     = v('--cv-dot-brd');
+    TC.brd2    = v('--cv-dot-brd2');
+    TC.brdHi   = v('--cv-dot-brd-hi');
+    TC.ink     = v('--cv-ink');
+    TC.ink2    = v('--cv-ink2');
+    TC.sub     = v('--cv-sub');
+    TC.line    = v('--cv-line');
+    TC.hl      = v('--cv-hl');
+    TC.accentRgb = v('--rgb-accent') || '46,125,138';
+    if (RIP) RIP.rgb = TC.accentRgb;   /* 涟漪和雨丝拼 rgba 用 */
+    HL = null;                          /* 高光贴图作废 */
+  }
+
+  /* 真正把主题落到位：校验名字、改属性、存档、刷选中态、重读 Canvas 色。
+     非法值（旧存档里的 auto / light）落回 blue，所以调用方不用自己校验。 */
+  function applyTheme(t){
+    var i, ok = false;
+    for (i = 0; i < THEMES.length; i++) if (THEMES[i][0] === t) ok = true;
+    if (!ok) t = 'blue';
+
+    themeSel = t;
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('rd-theme', t); } catch (e) {}
+    var bs = ctxEl.querySelectorAll('.sw');
+    for (i = 0; i < bs.length; i++)
+      bs[i].className = 'sw' + (bs[i].getAttribute('data-theme') === t ? ' on' : '');
+    readTheme();
+  }
+
+  /* 切主题。没有「跟随系统」这一档 —— 六套里选一套就是一套，系统换外观不动它。
+     主题名直接就是 data-theme 的值；blue 用 :root 那套默认值，不需要单独的 CSS 块。
+     动画就是整页淡入：挂 .theming 让浮层跟 body 一样在 .35s 里过渡，到点摘掉。 */
+  var themeTimer = 0;
+  function setTheme(t){
+    var root = document.documentElement;
+    root.classList.add('theming');
+    applyTheme(t);
+
+    /* 连续点几下时不叠加多个定时器，只留最后一个 —— 否则先前的会提前把类摘掉 */
+    if (themeTimer) clearTimeout(themeTimer);
+    themeTimer = setTimeout(function(){
+      themeTimer = 0;
+      root.classList.remove('theming');
+    }, 420);
+  }
+
+  /* 贴边翻转：默认右下展开，空间不够就改成左上。菜单和调参面板共用。 */
+  function ctxPlace(x, y){
+    var w = ctxEl.offsetWidth, hh = ctxEl.offsetHeight;
+    var left = x, top = y;
+    if (left + w > window.innerWidth - 8) left = x - w;
+    if (top + hh > window.innerHeight - 8) top = y - hh;
+    if (left < 8) left = 8;
+    if (top < 8) top = 8;
+    ctxEl.style.left = left + 'px';
+    ctxEl.style.top = top + 'px';
+  }
+
+  function showCtx(x, y, bean){
+    ctxBean = bean || null;
+    ctxTree = null;
+    ctxX = x; ctxY = y;
+    var h = ctxItem('rain', '下雨', '刷新 F5');
+    if (ctxBean){
+      var p = beanPath(ctxBean);
+      h += '<hr>';
+      h += ctxItem('pin', ctxBean.pinned ? '取消固定雨滴' : '固定雨滴',
+                   ctxBean.pinned ? '松手不回归' : '松手不回归');
+      h += ctxItem('branch', branchNode === ctxBean.node && ctxBean.node ? '恢复全貌' : '展开下级',
+                   ctxBean.node ? '只看这一支' : '合并块不支持');
+      h += '<hr>';
+      h += ctxItem('copyname', '复制名称', '');
+      h += ctxItem('copypath', '复制路径', p ? '' : '无', p ? '' : 'off');
+    } else {
+      /* 雨图空白处只放全局项：主题 + 实时/离线。
+         「调参」不在这里 —— 它调的是树图底下那层雨动画，跟雨图没有关系，
+         摆在雨图里会让人以为调的是画布上的雨丝。树图右键里才有。 */
+      h += '<hr>';
+      h += themeRow();
+    }
+    /* 数据源三项：不管右键点在珠子还是空白，都固定在这一段，
+       位置不变、顺序不变 —— 找东西靠肌肉记忆，不靠每次重新读菜单。 */
+    h += '<hr>';
+    h += ctxItem('link', offline ? 'WorkBuddy · 未连接' : 'WorkBuddy · 已连接',
+                 offline ? '点击连接' : '点击断开');
+    h += srcRows();
+    ctxEl.innerHTML = h;
+    ctxEl.className = 'on';
+    ctxPlace(x, y);
+  }
+
+  /* 树图的右键：五件事固定不变 —— 调参（下方雨动画）/ 主题 / 复制名称 / 复制路径 / 离线。
+     没有「下雨」「固定雨滴」「展开下级」：那些是雨图的珠子才有的动作。 */
+  function showCtxTree(x, y, name, p){
+    ctxBean = null;
+    ctxTree = { name: name || '', path: p || '' };
+    ctxX = x; ctxY = y;
+    var h = ctxItem('tune', '调参', '下方雨动画');
+    h += themeRow();
+    h += '<hr>';
+    /* 空白处不写「无」—— 「无」是在说结果（这一行没有名字），
+       用户需要的是下一步做什么（去右击一个真正的名字）。所以改成指路。 */
+    h += ctxItem('copyname', '复制名称', name ? '' : '请右击名称', name ? '' : 'off');
+    h += ctxItem('copypath', '复制路径', p ? '' : '请右击名称', p ? '' : 'off');
+    h += '<hr>';
+    h += ctxItem('link', offline ? '实时' : '离线',
+                 offline ? '重新连接 WorkBuddy' : '断开 WorkBuddy');
+    h += srcRows();
+    ctxEl.innerHTML = h;
+    ctxEl.className = 'on';
+    ctxPlace(x, y);
+  }
+
+  /* 从 keyPath 还原这一行的层级路径：d/3/0 → 资料库 › GonJui › Raindrop Chart。
+     keyPath 的每一段都能在 treeNodeMap 里查到对应的节点，逐级拼就行。 */
+  function treePath(key){
+    if (!key) return '';
+    var segs = key.split('/'), acc = '', out = [], i, n;
+    for (i = 0; i < segs.length; i++){
+      acc = i ? acc + '/' + segs[i] : segs[i];
+      n = treeNodeMap[acc];
+      if (n && n.name) out.push(n.name);
+    }
+    return out.join(' › ');
+  }
+
+  function hideCtx(){
+    closeSub();
+    ctxEl.className = '';
+    ctxBean = null;
+    ctxTree = null;
+  }
+
+  function ctxAct(act){
+    var b = ctxBean;
+    if (act === 'rain'){
+      rainAgain();
+      liveSeq = -1;
+      livePull();
+    } else if (act === 'pin' && b){
+      /* 只影响「松手回不回归」这一个动作：照样能拖、照样被邻居推开 */
+      b.pinned = !b.pinned;
+    } else if (act === 'branch' && b && b.node){
+      branchNode = (branchNode === b.node) ? null : b.node;
+      openGroups = {};
+      needsBuild = true;
+      sync();
+    } else if (act === 'copyname'){
+      var nm = ctxTree ? ctxTree.name : (b && b.node ? b.node.name : '');
+      if (nm && copyText(nm)) flashTip('已复制名称');
+    } else if (act === 'copypath'){
+      var pp = ctxTree ? ctxTree.path : beanPath(b);
+      if (pp && copyText(pp)) flashTip('已复制路径');
+    } else if (act === 'tune'){
+      openTune();
+    } else if (act === 'link'){
+      setLink(!offline);
+    } else if (act === 'addsrc'){
+      openSrcSub();
+      return;                    /* 不关菜单：原地展开二级 */
+    } else if (act === 'addsrc-file'){
+      pickSourceFile();
+    } else if (act === 'addsrc-dir'){
+      pickSourceDir();
+    }
+    hideCtx();
+  }
+
+  /* 「新增数据源」的二级菜单：文件和文件夹是两条不同的路径，
+     塞进一次系统对话框做不到（同一个 input 不能同时选两者）。
+     所以父项不直接弹文件框，而是在它右侧展开这一层 ——
+     两个选项同时可见，用户挑一个，不会先被系统的「打开」框锁死。 */
+  var subTimer = 0;
+
+  function subKeep(){
+    if (subTimer){ clearTimeout(subTimer); subTimer = 0; }
+  }
+  function subLater(ms){
+    subKeep();
+    subTimer = setTimeout(function(){ subTimer = 0; closeSub(); }, ms);
+  }
+
+  function openSrcSub(){
+    var it = ctxEl.querySelector('i.sub');
+    if (!it){ return; }
+    subKeep();
+    /* 每次都重建：两个选项的说明跟着当前模式走（雨图/树图不共用一套措辞） */
+    ctx2El.innerHTML =
+      ctxItem('addsrc-file', '选一个 CSV 文件', '导入成一个库') +
+      ctxItem('addsrc-dir', '选一个文件夹', '目录结构就是树');
+    ctx2El.className = 'on';
+
+    /* 贴边翻转：默认开在父项右侧，右边界不够就翻到左侧；
+       纵向把二级的第一个选项对齐父项的第一个选项（父菜单内边距 5 + 描边 1 = 6）。
+       两个面板之间留 -1px 的重叠，接缝看上去是一张纸折出来的两层。 */
+    var r = it.getBoundingClientRect();
+    var w = ctx2El.offsetWidth, hh = ctx2El.offsetHeight;
+    var left = r.right - 1;
+    var top = r.top - 6;
+    if (left + w > window.innerWidth - 8) left = r.left - w + 1;
+    if (top + hh > window.innerHeight - 8) top = window.innerHeight - 8 - hh;
+    if (left < 8) left = 8;
+    if (top < 8) top = 8;
+    ctx2El.style.left = left + 'px';
+    ctx2El.style.top = top + 'px';
+
+    it.className = 'sub open';       /* 父项保持高亮，指出这一层从哪儿来 */
+  }
+
+  function closeSub(){
+    subKeep();
+    if (!ctx2El.className) return;
+    ctx2El.className = '';
+    var it = ctxEl.querySelector('i.sub');
+    if (it) it.className = 'sub';
+  }
+
+  /* 实时 / 离线：离线就把 WorkBuddy 的数据源掐掉，画面停在当前这一帧；
+     切回实时立刻强制拉一次，不用等到下一轮轮询。 */
+  function setLink(toOffline){
+    offline = !!toOffline;
+    if (offline){
+      setLive('默认数据', false);
+    } else {
+      liveSeq = -1;
+      liveFail = 0;
+      livePull();          /* 立刻补一次，setLive 会把「离线」前缀一起去掉 */
+    }
+  }
+
+
+  /* ============ 新增数据源：选一个 CSV → 导入 → 立刻切过去 ============ */
+  var srcPick = null, srcDirPick = null;
+
+  function pickSourceFile(){
+    if (!srcPick){
+      srcPick = document.createElement('input');
+      srcPick.type = 'file';
+      srcPick.accept = '.csv,text/csv';
+      srcPick.style.display = 'none';
+      document.body.appendChild(srcPick);
+      srcPick.addEventListener('change', function(){
+        var f = srcPick.files && srcPick.files[0];
+        if (f) uploadSource(f);
+        srcPick.value = '';          /* 清掉，选同一个文件两次也要能触发 */
+      });
+    }
+    srcPick.click();
+  }
+
+  /* 整个文件夹：里面每个 .csv 各自成为一个库，不合并 ——
+     合并会把「订单履约」「Hello World」这类互不相干的东西塞进同一棵树，没法读。 */
+  /* ============ 新增数据源 · 文件夹：导入「结构」，不导入内容 ============
+     一个文件夹本身就是一棵树 —— 目录是父，文件是叶。
+     所以只把「相对路径 + 字节数」发上去，不读任何文件内容。
+     几千个文件也就几百 KB，而且永远看不到文件里写了什么。 */
+  var srcDirPick = null;
+  var DIR_MAX = 20000;        /* 再多就不是「看结构」，是在导整块硬盘 */
+
+  function pickSourceDir(){
+    if (!srcDirPick){
+      srcDirPick = document.createElement('input');
+      srcDirPick.type = 'file';
+      srcDirPick.setAttribute('webkitdirectory', '');
+      srcDirPick.setAttribute('directory', '');
+      srcDirPick.multiple = true;
+      srcDirPick.style.display = 'none';
+      document.body.appendChild(srcDirPick);
+      srcDirPick.addEventListener('change', function(){
+        var fs = srcDirPick.files || [], list = [], i, cut = false;
+        var rootName = '', prefix = '';
+        for (i = 0; i < fs.length; i++){
+          var p = fs[i].webkitRelativePath || fs[i].name;
+          var seg = p.split('/');
+          /* 浏览器给的相对路径第一段就是选中的那个文件夹名，
+             根节点已经叫这个名字了，别重复一层 */
+          if (!rootName && seg.length > 1){ rootName = seg[0]; prefix = seg[0] + '/'; }
+          if (list.length >= DIR_MAX){ cut = true; break; }
+          list.push([p.indexOf(prefix) === 0 ? p.slice(prefix.length) : p, fs[i].size || 0]);
+        }
+        srcDirPick.value = '';
+        if (!list.length){ flashTip('这个文件夹里没有文件'); return; }
+        importTree(rootName || '结构树', list, cut);
+      });
+    }
+    srcDirPick.click();
+  }
+
+  function importTree(name, files, cut){
+    flashTip('正在读结构 · ' + files.length + ' 个文件…');
+    fetch('/api/source/tree', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, files: files })
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d || !d.ok){ flashTip('导入失败：' + ((d && d.error) || '未知错误')); return; }
+        flashTip('已导入 ' + d.files + ' 个文件' + (cut ? '（超出上限，只取了前面一部分）' : ''));
+        switchSource(d.key);
+        colsRefresh();               /* 两栏同时多一行，不用等切到树图 */
+      })
+      .catch(function(e){ flashTip('导入失败：' + e.message); });
+  }
+
+  function uploadSource(file){
+    var rd = new FileReader();
+    rd.onload = function(){
+      fetch('/api/source/add?name=' + encodeURIComponent(file.name), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+        body: rd.result
+      })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d && d.ok){
+            switchSource(d.key);
+            colsRefresh();           /* 左栏多一个地址，右栏多一个库 */
+            flashTip('已导入 ' + (d.label || file.name));
+          } else {
+            flashTip((d && d.error) || '导入失败');
+          }
+        })
+        .catch(function(){ flashTip('导入失败'); });
+    };
+    rd.onerror = function(){ flashTip('这个文件读不了'); };
+    rd.readAsText(file, 'utf-8');
+  }
+
+  /* 换数据源 = 换了一整棵树。焦点、下钻路径、增量游标全要重来，
+     否则新树的节点会被当成「新到的」落一串雨滴，或者卡在旧路径上。 */
+  function switchSource(key){
+    /* 允许传空串：空 = 回到顶级目录（Raindrop Chart）。 */
+    SOURCE = key || '';
+    offline = false;
+    path = [];
+    openGroups = {};
+    liveSeq = -1;
+    liveReady = false;
+    lastSeenAt = 0;
+    intoDone = false;
+    expanded = true;
+    if (qEl) qEl.value = '';
+    livePull();
+  }
+
+  function setFocus(idx){
+    path = path.slice(0, idx + 1);
+    expanded = true;
+    openGroups = {};
+    drawCrumb();
+    sync();
+  }
+
+  cv.addEventListener('pointermove', function(e){
+    /* 拖动中：圆跟着指针走。只改这一帧的位置，不写入任何持久状态，
+       松手后 sync() 会把目标位还原，圆自己弹回去。 */
+    if (drag){
+      var mdx = e.clientX - drag.sx, mdy = e.clientY - drag.sy;
+      if (!drag.moved && mdx * mdx + mdy * mdy >= DRAG_MIN * DRAG_MIN) drag.moved = true;
+      if (drag.moved && drag.bean){
+        var nb = drag.bean;
+        nb.x = nb.tx = e.clientX + drag.ox;
+        nb.y = nb.ty = e.clientY + drag.oy;
+        nb.gy = 0; nb.gv = 0;            /* 还在下落的，抓住就落地，别再往下掉 */
+        /* 推开别人不在这里做：统一交给 step() 里的 relaxAll()，
+           保证「任何两个圆都不重叠」这条规则只有一处实现。 */
+        cv.style.cursor = 'grabbing';
+        tip.style.opacity = '0';
+      }
+      return;
+    }
+    var hit = hitTest(e.clientX, e.clientY);
+    hoveredKey = null;
+    if (hit){
+      hoveredKey = hit.kind === 'center' ? 'center' : hit.bean.key;
+      cv.style.cursor = (hit.kind === 'center') ? 'pointer' : 'grab';
+      /* 副标题只放「量」，不放「怎么操作」——
+         点一下进入 / 点一下加载 / 点一下收起 / 按住可拖 这些动词
+         底部提示和右键菜单都已经说过一遍了，重复放在每次悬停都要跳一次的位置，
+         反而让卡片宽度随圆变来变去。这里只回答「这是什么、有多大」，
+         没量可说就整行不出，卡片高度也就不会忽高忽低。 */
+      var name, sub = '';
+      if (hit.kind === 'center'){
+        name = focusNode().name;
+        sub = wtext(focusNode());
+      } else if (hit.bean.group){
+        name = hit.bean.group.length + ' 项合并';
+        sub = hit.bean.group.map(function(g){ return g.name; }).join(' · ');
+      } else {
+        name = dispName(hit.bean.node);
+        /* 会话节点没有 children，但它的步数 / 回合数就在自己身上。
+           以前这里用「有没有 children」当门槛，等于把会话的统计也一起挡掉了。 */
+        sub = wtext(hit.bean.node);
+      }
+      /* 工作区：时间戳名字认不出内容，悬停列出里面最重的 3 个会话。
+         这只是提示框里的说明，不参与层级，也不改任何树的统计口径。 */
+      var extra = '';
+      if (hit.kind === 'bead' && !hit.bean.group){
+        var nd0 = hit.bean.node, tp = nd0 && nd0.top;
+        if (tp && tp.length){
+          for (var ti = 0; ti < tp.length; ti++){
+            extra += '<div class="tr"><i>' + (ti + 1) + '</i><em>'
+              + esc(tp[ti].name || '(无标题)') + '</em>'
+              + '<s>' + (tp[ti].steps || 0) + ' 步</s></div>';
+          }
+        }
+      }
+      /* 内容没变就不重建 DOM。pointermove 每个像素都触发一次，
+         无脑写 innerHTML 会让同一张卡片被反复销毁重绘，看着就像在闪。 */
+      var html = '<div class="th">' + esc(name) + '</div>'
+        + (sub ? '<div class="ts">' + esc(sub) + '</div>' : '')
+        + (extra ? '<hr>' + extra : '');
+      if (html !== tipHTML){ tip.innerHTML = html; tipHTML = html; }
+      /* 内容一高就可能顶出屏幕顶部，靠近顶端时改成向下展开 */
+      var hh = tip.offsetHeight || 26;
+      tip.style.transform = (e.clientY - hh * 1.5 < 8)
+        ? 'translate(-50%, 14px)'
+        : 'translate(-50%,-150%)';
+      tip.style.left = e.clientX + 'px';
+      tip.style.top = e.clientY + 'px';
+      tip.style.opacity = '1';
+    } else {
+      cv.style.cursor = 'default';
+      tip.style.opacity = '0';
+    }
+  });
+
+  /* 点击的真实动作都挪到这里，只有“按下 → 松开”位移小于阈值时才执行 */
+  function tapHit(hit){
+    if (!hit){
+      if (expanded){
+        expanded = false;
+        openGroups = {};
+        spawnRipple(CX, CY, R0(), 0.6);
+        sync();
+      }
+      return;
+    }
+    if (hit.kind === 'center'){
+      expanded = !expanded;
+      openGroups = {};
+      spawnRipple(CX, CY, R0() * 0.9, 1);
+      sync();
+      return;
+    }
+    var b = hit.bean;
+    spawnRipple(b.x, b.y, b.r, 0.8);
+    /* 顶级目录里的「库」珠子：点一下切到那个数据源 */
+    if (b.node && b.node.kind === 'src'){
+      switchSource(b.node.srcKey);
+      return;
+    }
+    if (b.group){
+      if (openGroups[b.key]) delete openGroups[b.key];
+      else openGroups[b.key] = true;
+      sync();
+      return;
+    }
+    if (b.lane) return;
+    /* 工作区：会话还没拉过，点下去才请求 */
+    if (b.node.lazyWs && !(b.node.children && b.node.children.length)){
+      wsLoad(b.node, function(){
+        path.push(b.node);
+        expanded = true;
+        openGroups = {};
+        drawCrumb();
+        sync();
+        spawnRipple(CX, CY, R0() * 0.8, 0.9);
+      });
+      return;
+    }
+    if (b.node.lazy && b.node.sid){
+      loadSession(b.node, function(){
+        path.push(b.node);
+        expanded = true;
+        openGroups = {};
+        drawCrumb();
+        sync();
+        spawnRipple(CX, CY, R0() * 0.8, 0.9);
+      });
+      return;
+    }
+    if (b.node.children && b.node.children.length){
+      path.push(b.node);
+      expanded = true;
+      openGroups = {};
+      drawCrumb();
+      sync();
+    }
+  }
+
+  cv.addEventListener('pointerdown', function(e){
+    if (e.button === 2) return;                       /* 右键交给 contextmenu */
+    if (e.button === 3 || e.button === 4) return;      /* 侧键交给 window 那边 */
+    var hit = hitTest(e.clientX, e.clientY);
+    var bean = (hit && hit.kind === 'bead') ? hit.bean : null;
+    drag = {
+      bean: bean,
+      key: bean ? bean.key : (hit ? '@center' : '@blank'),
+      sx: e.clientX, sy: e.clientY,
+      ox: bean ? bean.x - e.clientX : 0,
+      oy: bean ? bean.y - e.clientY : 0,
+      moved: false,
+      hit: hit
+    };
+    if (bean){
+      try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+      cv.style.cursor = 'grab';
+      /* 按下时给所有人拍一张目标位快照：拖动中推开会改 tx/ty，松手要原样还回去。
+         用 key 做索引而不是数组下标 —— 拖动期间数据轮询可能让珠子增减，
+         按下标存的话长度一对不上就只能全量重排，而重排会从「已经被推乱的
+         当前位置」抄坐标，于是松手就留下一堆重叠。按 key 存谁都不会错位。 */
+      var snap = {};
+      for (var si = 0; si < beans.length; si++){
+        snap[beans[si].key] = [beans[si].tx, beans[si].ty];
+      }
+      drag.snap = snap;
+      drag.homeX = bean.x;      /* 原位，用来画那个虚线圈 */
+      drag.homeY = bean.y;
+      drag.homeR = bean.r;
+    }
+  });
+
+  cv.addEventListener('pointerup', function(e){
+    if (!drag) return;
+    var d = drag;
+    drag = null;
+    try { cv.releasePointerCapture(e.pointerId); } catch (err) {}
+    if (d.moved){
+      /* 松手即回弹：把目标位还成按下时的快照，珠子自己滑回去。
+         拖动不改变布局，只是临时挪开看一眼 —— 所以这里不重算 packItems。 */
+      cv.style.cursor = d.bean ? 'grab' : 'default';
+      if (d.bean){
+        d.bean.gy = 0; d.bean.gv = 0;
+        spawnRipple(d.bean.x, d.bean.y, d.bean.r * 0.8, 0.45);
+      }
+      restoreHome(d);
+      return;
+    }
+    tapHit(d.hit);                     /* 没位移 → 当作点击 */
+  });
+
+  cv.addEventListener('pointercancel', function(){
+    if (drag && drag.moved) restoreHome(drag);   /* 被打断也回弹，别把圆留在半路 */
+    drag = null;
+    cv.style.cursor = 'default';
+  });
+
+  /* ---- 右键菜单 ---- */
+  cv.addEventListener('contextmenu', function(e){
+    e.preventDefault();
+    var hit = hitTest(e.clientX, e.clientY);
+    showCtx(e.clientX, e.clientY, (hit && hit.kind === 'bead') ? hit.bean : null);
+  });
+
+  /* 树图的右键：命中某一行就带上它的名称与路径，点在空白处两项置灰 */
+  twBox.addEventListener('contextmenu', function(e){
+    e.preventDefault();
+    var el = e.target, cls;
+    while (el && el !== twBox){
+      cls = el.className || '';
+      if (typeof cls === 'string' && /(^|\s)trow(\s|$)/.test(cls)) break;
+      el = el.parentNode;
+    }
+    if (!el || el === twBox){
+      showCtxTree(e.clientX, e.clientY, '', '');
+      return;
+    }
+    var key = el.getAttribute('data-k');
+    var node = key ? treeNodeMap[key] : null;
+    showCtxTree(e.clientX, e.clientY, node ? dispName(node) : '', treePath(key));
+  });
+
+  ctxEl.addEventListener('mousedown', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    var el = e.target;
+    while (el && el !== ctxEl && el.tagName !== 'I' && el.tagName !== 'B') el = el.parentNode;
+    if (!el || el === ctxEl) return;
+    if (el.tagName === 'B'){                 /* 主题三连：只切选中态，菜单留着不关 */
+      setTheme(el.getAttribute('data-theme'));
+      return;
+    }
+    if ((el.className || '').indexOf('off') >= 0) return;
+    ctxAct(el.getAttribute('data-act'));
+  });
+
+  /* 二级菜单的悬停：指向「新增数据源」就展开，指向别的项就收起 ——
+     和系统菜单一样，不用先点一次才知道里面有什么。 */
+  ctxEl.addEventListener('mouseover', function(e){
+    var it = ctxEl.querySelector('i.sub');
+    if (it && it.contains(e.target)){ openSrcSub(); return; }
+    closeSub();
+  });
+  /* 离开父菜单不立刻收：指针要斜着穿过接缝才能落到二级上，
+     留 200ms 给它走这一段，否则总是差半帧、点不中。 */
+  ctxEl.addEventListener('mouseleave', function(){ subLater(200); });
+
+  /* 二级自己的点击：和父菜单同一套派发（off 项不响应） */
+  ctx2El.addEventListener('mousedown', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    var el = e.target;
+    while (el && el !== ctx2El && el.tagName !== 'I') el = el.parentNode;
+    if (!el || el === ctx2El) return;
+    if ((el.className || '').indexOf('off') >= 0) return;
+    ctxAct(el.getAttribute('data-act'));
+  });
+  ctx2El.addEventListener('mouseenter', subKeep);
+  ctx2El.addEventListener('mouseleave', function(){ subLater(120); });
+
+  /* 拖调参面板：跟着指针走，四边留 8px 不让它跑出屏幕 */
+  window.addEventListener('mousemove', function(e){
+    if (!tuneDrag) return;
+    var w = tuneEl.offsetWidth, hh = tuneEl.offsetHeight;
+    var l = e.clientX - tuneDrag.dx, t = e.clientY - tuneDrag.dy;
+    l = Math.min(Math.max(8, l), Math.max(8, window.innerWidth - w - 8));
+    t = Math.min(Math.max(8, t), Math.max(8, window.innerHeight - 40));
+    tuneEl.style.left = l + 'px';
+    tuneEl.style.top = t + 'px';
+  });
+  window.addEventListener('mouseup', function(){
+    if (!tuneDrag) return;
+    tuneDrag = null;
+    if (tuneEl.className.indexOf('on') >= 0) tuneEl.className = 'on';
+  });
+
+  document.addEventListener('mousedown', function(e){
+    if (ctxEl.className && !ctxEl.contains(e.target) && !ctx2El.contains(e.target)) hideCtx();
+    /* 调参面板：点空白处收起，但点菜单里的「调参」不算（那一层已经 stopPropagation） */
+    if (tuneEl && tuneEl.className && !tuneEl.contains(e.target)) closeTune(false);
+  });
+  /* 断库的二次确认：点了别处就当放弃。放在 click（不是 mousedown）——
+     否则同一轮点击里 mousedown 先把状态清掉，click 又当成第一次点，永远确认不了。 */
+  document.addEventListener('click', function(e){
+    if (!delPending) return;
+    if (e.target.closest && e.target.closest('[data-del]')) return;
+    delPending = '';
+    if (MODE === 'tree') drawTrees();
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' || e.keyCode === 27){ hideCtx(); closeTune(true); }
+    /* 面板开着时回车等于点「确定」，默认按钮该有的行为 */
+    if ((e.key === 'Enter' || e.keyCode === 13) && tuneEl && tuneEl.className.indexOf('on') >= 0){
+      closeTune(false);
+    }
+  });
+
+  crumb.addEventListener('click', function(e){
+    var t = e.target;
+    if (t.tagName !== 'B') return;
+    var di = t.getAttribute('data-i');
+    if (di === null) return;   /* 占位说明文字不是层级，别当路径跳 */
+    if (di === '-1'){ switchSource(''); return; }
+    setFocus(parseInt(di, 10));
+  });
+
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'Escape'){
+      expanded = false; openGroups = {}; sync();
+    }
+  });
+
+  window.addEventListener('resize', function(){
+    clearTimeout(window.__rt);
+    window.__rt = setTimeout(resize, 120);
+  });
+
+  /* ---------------- 启动 ---------------- */
+
+  resize();
+  if (root){
+    weigh(root);
+    path = [root];
+    var m = /s=(\d)/.exec(location.hash);
+    if (m && +m[1] >= 1) expanded = true;
+    if (m && +m[1] >= 2){
+      var first = root.children[0];
+      path = [root, first];
+      expanded = true;
+    }
+  }
+  drawCrumb();
+  sync();
+
+  if (LIVE){
+    lvBox.className = 'on';
+    adBox.className = 'on';
+
+    /* 点空白处进输入态；点面包屑上的层级是跳转，不进 */
+    adBox.addEventListener('click', function(e){
+      var t = e.target;
+      if (t.tagName === 'B' && t.getAttribute('data-i') !== null) return;   /* 面包屑层级 */
+      if (t === qxEl) return;                                               /* × 自己处理 */
+      if (adFocused){
+        /* 已经聚焦时再点空白：重新全选整条路径；点输入框内部不抢，允许正常定位光标 */
+        if (t !== qEl){ qEl.focus(); try { qEl.select(); } catch (err) {} }
+        return;
+      }
+      adFocus();
+    });
+
+    /* ×：唯一会“全部删除”的入口，点别处不会清空 */
+    qxEl.addEventListener('mousedown', function(e){ e.preventDefault(); });
+    qxEl.addEventListener('click', function(e){
+      e.stopPropagation();
+      qEl.value = '';
+      qList.className = '';
+      qList.__hits = null;
+      qEl.focus();
+    });
+    qEl.addEventListener('input', function(){
+      clearTimeout(qTimer);
+      qTimer = setTimeout(qRun, 130);
+    });
+    qEl.addEventListener('keydown', function(e){
+      if (e.key === 'Escape'){ qEl.value = ''; qList.className = ''; adBlur(); }
+      if (e.key === 'Enter' && qList.__hits && qList.__hits.length) qJump(qList.__hits[0]);
+    });
+    /* 下拉里按下鼠标时不要先失焦，否则列表先被清空、点击落空 */
+    qList.addEventListener('mousedown', function(e){ e.preventDefault(); });
+    qList.addEventListener('click', function(e){
+      var d = e.target.closest ? e.target.closest('div[data-i]') : null;
+      if (!d || !qList.__hits) return;
+      var h = qList.__hits[+d.getAttribute('data-i')];
+      if (h) qJump(h);
+    });
+
+    /* 第一行：三种呈现方式 */
+    var mbtns = mdBox.getElementsByTagName('b');
+    for (var mi = 0; mi < mbtns.length; mi++){
+      mbtns[mi].addEventListener('click', function(){
+        var m = this.getAttribute('data-m');
+        if (m === MODE){
+          /* 已经在这个模式上，再点一下＝重新开始，而不是没反应 */
+          if (m === 'rain'){
+            rainAgain();                                  /* 再下一场雨（O(n)） */
+            liveSeq = -1; liveReady = false; intoDone = false;
+            livePull();                                   /* 顺便把数据重拉一遍 */
+          } else {
+            treeLoaded = false; treePull();
+          }
+          return;
+        }
+        MODE = m;
+        try { location.hash = (m === 'rain' ? 'view=' + VIEW : 'mode=' + m); } catch (e) {}
+        modeSync();
+        if (MODE === 'rain'){
+          path = [root]; liveSeq = -1; liveReady = false; intoDone = false;
+          rainAgain();                                    /* 从树图切回来也重新下 */
+          /* 落到树图里选中的那一层。要换库时 applyAddr 自己会发请求，
+             这里就不要再补一次 —— 两个请求并发回来会互相盖掉对方的树。 */
+          var src0 = SOURCE;
+          if (curAddr) applyAddr(curAddr);
+          if (SOURCE === src0) livePull();
+        }
+      });
+    }
+
+    tbdEl.addEventListener('click', onTreeClick);
+    tbmEl.addEventListener('click', onTreeClick);
+    tbdEl.addEventListener('mouseover', onTreeHover);
+    tbmEl.addEventListener('mouseover', onTreeHover);
+    tbdEl.addEventListener('mouseleave', clearLink);
+    tbmEl.addEventListener('mouseleave', clearLink);
+    tbdEl.addEventListener('scroll', function(){ onColScroll('d', tbdEl, tbmEl); });
+    tbmEl.addEventListener('scroll', function(){ onColScroll('m', tbmEl, tbdEl); });
+    document.addEventListener('click', function(e){
+      if (adFocused && !adBox.contains(e.target)) adBlur();
+    });
+    modeSync();
+    livePull();
+    liveTimer = setInterval(livePull, 1500);
+    window.addEventListener('beforeunload', function(){ clearInterval(liveTimer); });
+  } else if (location.protocol === 'file:'){
+    /* 双击 html 直接打开 = 没有服务 = 只能画 data.js 里的演示数据。必须喊出来，别让人当成真的 */
+    var warn = document.createElement('div');
+    warn.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);'
+      + 'z-index:99;background:var(--panel-solid);color:var(--ink);padding:20px 24px;border-radius:12px;'
+      + 'font:13px/1.9 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;'
+      + 'max-width:400px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.22)';
+    warn.innerHTML = '你打开的是本地文件，不是服务。<br>'
+      + '<span style="color:var(--muted)">背后画的只是 data.js 里的演示数据，不是你的会话。</span>'
+      + '<div style="margin:14px 0 6px;color:var(--accent);font-weight:500">请访问 http://127.0.0.1:7788/</div>'
+      + '<span style="color:var(--muted)">或双击同目录的启动脚本（Windows 是 start.bat，macOS / Linux 是 start.sh）</span>';
+    document.body.appendChild(warn);
+  } else {
+    /* http 打开却没连上：服务刚挂了，或者这个端口上不是自己。
+       胶囊不能再挂着「连接中…」——那会让人一直等一个不会来的东西。 */
+    lvBox.className = 'on off';
+    lvText.innerHTML = '<b>演示数据</b> <s>·</s> 服务没连上';
+  }
+  /* 主题：先用上次的选择铺上，避免亮色闪一下再变深。
+     这里用 applyTheme 而不是 setTheme —— 首帧没有「旧样子」可淡出，
+     挂过渡类反而会让首次绘制带着一段无意义的动画。
+     不监听系统外观 —— 这套 UI 里主题是用户自己点出来的，不该被系统改掉。 */
+  var savedTheme = 'blue';
+  try { savedTheme = localStorage.getItem('rd-theme') || 'blue'; } catch (e) {}
+  applyTheme(savedTheme);
+
+  if (location.hash.indexOf('openall') >= 0){
+    var any = false;
+    for (var z = 0; z < beans.length; z++) if (beans[z].group){ openGroups[beans[z].key] = true; any = true; }
+    if (any) sync();
+  }
+  requestAnimationFrame(step);
+})();
+</script>
+</body>
+</html>

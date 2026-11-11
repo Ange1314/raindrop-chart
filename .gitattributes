@@ -1,0 +1,26 @@
+# 换行符与编码：显式声明，别让 git 自己猜
+#
+# 为什么需要这个文件：
+#   Windows 上很多人开了 core.autocrlf=true，git 会在检出时把 LF 转 CRLF。
+#   对纯文本这是好事，但对下面这两类文件是破坏性的：
+#     · .vbs 是 UTF-16 LE + BOM，转码会直接让 Windows Script Host 认不出来
+#     · .bat 用 CRLF 才是原生，但如果谁在 Linux/macOS 上 clone 再提交回来，
+#       被转成 LF 后 cmd.exe 解析会出怪问题
+#   显式写死，不依赖每个人本地的 git 配置。
+
+# Windows 脚本：保持原样，禁止任何换行/编码转换
+*.vbs   -text
+*.bat   -text
+
+# 其余源码统一按 LF 存储（跨平台协作更稳）
+*.py    text eol=lf
+*.md    text eol=lf
+*.csv   text eol=lf
+*.js    text eol=lf
+*.sh    text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+LICENSE        text eol=lf
+
+# 二进制资源不做任何处理
+*.png   binary
