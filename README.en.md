@@ -35,12 +35,12 @@ Or click `Code` → `Download ZIP` and unzip it. Don't run it from inside the ar
 
 ### 3. Run
 
-Windows has two launchers. **They do the same thing; the only difference is whether you see a console window.**
+Double-click **`静默启动.vbs`**. That's it.
 
-| Double-click | What happens | When to use |
-|---|---|---|
-| **`启动.bat`** | Opens a console window showing the server address; browser opens automatically | **Use this first.** If something breaks, you can read the actual error |
-| **`静默启动.vbs`** | **No window at all**; server starts silently, browser opens automatically | Daily use. On failure it shows a message box and writes the reason to `data/运行日志.txt` |
+The server starts in the background and your browser opens `http://127.0.0.1:7788/` by itself.
+There is **no console window** to leave open, and no "which one do I click" question — one entry only.
+
+**If it fails:** a message box tells you why; the full traceback goes to `data/运行日志.txt`.
 
 **macOS / Linux:**
 
@@ -155,7 +155,9 @@ Read-only. Nothing is written, modified, or uploaded.
 Some Windows built-in unzip tools ignore the UTF-8 flag on zip entries. Use **7-Zip** or
 **Bandizip**, or just `git clone`.
 
-**The window flashes and disappears** — Python isn't installed or isn't on PATH. Right-click `启动.bat` → Edit, add a `pause` line at the end, then run again to read the error.
+**Double-clicking does nothing** — Check for a message box first; it usually says Python wasn't found.
+If no box appears either, read the last lines of `data/运行日志.txt`. To see the output live,
+run the equivalent yourself: `python app/live_server.py`.
 
 **Blank page** — Check the terminal for errors. If the port is taken, the program auto-shifts (7788 → 7789 → …). **Use the address printed in the terminal**, not an old bookmark.
 
@@ -171,10 +173,7 @@ Some Windows built-in unzip tools ignore the UTF-8 flag on zip entries. Use **7-
 
 ```
 raindrop-chart/
-├── live_server.py     Local server + data parsing + HTTP API
-raindrop-chart/
-├── 启动.bat           ← double-click this (Windows, console window, shows real errors)
-├── 静默启动.vbs       ← or this (Windows, no window at all)
+├── 静默启动.vbs       ← double-click this (Windows; the only entry, no window)
 ├── start.sh           ← macOS / Linux
 ├── 注册MCP.bat        ← double-click this too if you want AI to read the data
 │
