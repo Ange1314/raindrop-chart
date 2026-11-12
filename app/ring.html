@@ -1025,6 +1025,7 @@
   var pulseAt = 0;
   var lastT = 0;
   var needsBuild = true;
+  var emptySince = 0;   /* 这一层开始为空的时刻（ms），给空态提示留 800ms 宽限 */
 
   /* ===== 性能角标（地址带 ?perf 才出现，平时完全不存在）=====
      卡顿这种事不能靠猜：圆数、布局耗时、同步耗时、帧率，四个数字一摆，
@@ -4425,18 +4426,55 @@
     ctx.clearRect(0, 0, W, H);
 
     if (!root){
+      /* 分两种：连本地服务（真人在用）和读 data.js（开发/示例）。
+         原来只有后者那句「在 data.js 填 RAINDROP_TREE」——对真人是纯噪音：
+         他既不知道 data.js 是什么，也不知道该等还是该报错。
+         连服务时数据没到只可能是还在读索引（几万条会话第一次要建），
+         所以直接说「正在读取」，别让人以为是坏了。 */
       ctx.save();
+      ctx.textAlign = 'center';
       ctx.fillStyle = TC.sub;
       ctx.font = '13px system-ui,-apple-system,"PingFang SC",sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('未注入流程树', CX, CY - 8);
-      ctx.fillStyle = TC.sub;
-      ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
-      ctx.fillText('在 data.js 填 RAINDROP_TREE', CX, CY + 14);
+      if (LIVE){
+        ctx.fillText('正在读取…', CX, CY - 8);
+        ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+        ctx.fillText('第一次要建索引，之后是秒开', CX, CY + 14);
+      } else {
+        ctx.fillText('未注入流程树', CX, CY - 8);
+        ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+        ctx.fillText('在 data.js 填 RAINDROP_TREE', CX, CY + 14);
+      }
       ctx.restore();
       requestAnimationFrame(step);
       return;
     }
+
+    /* root 有、这一层却一颗珠都没有 —— 不能什么都不画。
+       一片纯背景和「坏了」长得一模一样，用户没法区分「这里本来就空」
+       和「加载失败」。
+
+       但要留 800ms 宽限：sync 建珠子/入场都在头几帧里跑完，
+       立刻弹「没有内容」等于每进一层都闪一下这行字，比空白更吵。 */
+    var aliveNow = 0;
+    for (var ai = 0; ai < beans.length; ai++) if (beans[ai].ta !== 0) aliveNow++;
+    if (!aliveNow){
+      if (!emptySince) emptySince = now;
+      if (now - emptySince < 800){
+        requestAnimationFrame(step);
+        return;
+      }
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = TC.sub;
+      ctx.font = '13px system-ui,-apple-system,"PingFang SC",sans-serif';
+      ctx.fillText('这一层没有内容', CX, CY - 8);
+      ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+      ctx.fillText('退回上一层，或切到树图看结构', CX, CY + 14);
+      ctx.restore();
+      requestAnimationFrame(step);
+      return;
+    }
+    emptySince = 0;
 
     var k = 1 - Math.pow(0.0016, dt);
     for (var i = beans.length - 1; i >= 0; i--){
