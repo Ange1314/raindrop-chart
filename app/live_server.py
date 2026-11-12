@@ -143,7 +143,7 @@ SERVER_PORT = [PORT]               # 实际监听到的端口（可能因占用�
 # 页面标题：用来认出「已经开着的那个窗口」。
 # ⚠️ 和 ring.html 的 <title> 必须一致 —— 对不上就永远认不出来，
 #    表现是退回「每点一次桌面图标多一个标签」。
-PAGE_TITLE = "Raindrop Chart · 点与周长"
+PAGE_TITLE = "Raindrop Chart"
 
 # 工具名 -> 中文短名（点上的字要短，点开才看全名）
 TOOL_ZH = {
@@ -2584,6 +2584,7 @@ def focus_existing_page():
         GetWindowTextW = user32.GetWindowTextW
         GetWindowTextLengthW = user32.GetWindowTextLengthW
         IsWindowVisible = user32.IsWindowVisible
+        GetClassNameW = user32.GetClassNameW
 
         found = []
 
@@ -2596,16 +2597,28 @@ def focus_existing_page():
                 return True
             buf = ctypes.create_unicode_buffer(n + 1)
             GetWindowTextW(hwnd, buf, n + 1)
-            if PAGE_TITLE in buf.value:
-                found.append(hwnd)
-                return False        # 找到一个就够，停
+            if PAGE_TITLE not in buf.value:
+                return True
+            cb = ctypes.create_unicode_buffer(256)
+            GetClassNameW(hwnd, cb, 256)
+            found.append((hwnd, cb.value.lower()))
             return True
 
         EnumWindows(_cb, 0)
         if not found:
             return False
 
-        hwnd = found[0]
+        # 纯英文标题「Raindrop Chart」和磁盘上那个同名文件夹一模一样，光靠标题
+        # 认人会把资源管理器抬到前面（用户看到「双击图标却弹出文件夹」）。
+        # 只认浏览器类名：认不出就返回 False 老实开新标签 —— 多一个标签，
+        # 好过跳错窗口。
+        BROWSER_CLS = ("chrome_widgetwin", "mozilla", "firefox")
+        hwnd = next(
+            (h for h, cls in found if any(k in cls for k in BROWSER_CLS)),
+            None,
+        )
+        if hwnd is None:
+            return False
         SW_RESTORE = 9
         try:
             if user32.IsIconic(hwnd):     # 最小化着就先还原，否则只会任务栏闪一下

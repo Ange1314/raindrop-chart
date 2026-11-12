@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Raindrop Chart · 点与周长</title>
+<title>Raindrop Chart</title>
 <!-- 标签页图标：和桌面快捷方式同一张图。放在这里而不是根目录，
      因为静态服务只认当前目录这一层。直接双击打开（file://）时找不到也无所谓，
      浏览器会退回默认的空白页图标。 -->
@@ -998,6 +998,11 @@
   var root = (location.hash.indexOf('dense') >= 0 && window.RAINDROP_TREE_DENSE)
     ? window.RAINDROP_TREE_DENSE : window.RAINDROP_TREE;
   var path = [];            /* 焦点链，path[0] 是根 */
+  /* 两段式标题的固定后缀。**必须定义在这里**，不能跟着 updateTitle 一起放到
+     文件后段 —— sync() 在初始化阶段就会调到 updateTitle，那时后段的 var 还是
+     undefined，标题会拼成「名字 - undefined」。 */
+  var TITLE_SUFFIX = 'Raindrop Chart';
+  var titleLast = '';
   var expanded = true;   /* 进来就铺开子体，不再先看一个孤零零的大圆 */
   var openGroups = {};      /* 哪些合并珠子被展开了（可逆） */
   var beans = [];           /* 当前渲染项 */
@@ -2149,6 +2154,9 @@
 
     needsBuild = false;
     if (PERF) pfStat.n = beans.length;
+    /* 根层名字是异步到的（先有空壳，索引读完才填 name），
+       drawCrumb 那条路不一定再走一次 —— 这里兜一下。 */
+    updateTitle();
   }
 
   /* ===== 拖动期间的全局不重叠（布局的核心规则，拖动时也不例外）=====
@@ -3437,6 +3445,7 @@
       setLive(statLine() || '', false);
     }
     if (isRain){ resize(); }
+    updateTitle();
   }
 
   /* ============ 浏览器历史：侧键 / Alt+← / 后退按钮 统一走 popstate ============
@@ -4050,6 +4059,28 @@
     setLive(stat || '', false);
   }
 
+  /* ===== 两段式标题：当前所在层 - Raindrop Chart =====
+     学 DeepSeek 的「项目名 - deepseek」。关键词是**后缀固定不动**：
+     服务端 focus_existing_page() 靠这个后缀认出已经开着的那个窗口，
+     前缀怎么变都不影响识别（它匹配的是「含有」，不是「等于」）。
+     前缀只回答一个问题：我现在在哪一层。 */
+  function updateTitle(){
+    var name = '';
+    if (MODE === 'tree') name = 'Tree';
+    else if (path.length) name = circleLabel(path[path.length - 1]);
+    else if (root && root.name) name = circleLabel(root);
+    name = String(name || '').trim();
+    /* 标签栏本来就窄，超过 20 字浏览器会自己截成省略号 ——
+       位置不可控，不如我们自己砍，至少砍在哪看得见。 */
+    if (name.length > 20) name = name.slice(0, 20) + '…';
+    /* 根层的名字常常就叫 Raindrop Chart，别写成「A - A」 */
+    if (name.toLowerCase() === TITLE_SUFFIX.toLowerCase()) name = '';
+    var t = name ? name + ' - ' + TITLE_SUFFIX : TITLE_SUFFIX;
+    if (t === titleLast) return;     /* 每帧都会问到，没变就别碰 DOM */
+    titleLast = t;
+    document.title = t;
+  }
+
   function drawCrumb(){
     var html = '';
     /* 进了某个库，前面挂一个回顶级的入口 —— 否则点进去就出来，
@@ -4061,6 +4092,7 @@
       html += '<b data-i="' + i + '">' + path[i].name + '</b>';
     }
     crumb.innerHTML = html;
+    updateTitle();
   }
 
   function spawnRipple(x, y, r, power){
