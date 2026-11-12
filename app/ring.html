@@ -761,6 +761,25 @@
     /* 顶栏长高了约 40，树图的上留白要跟着让，否则第一行会被压在胶囊底下 */
     #treewrap{--tw-top:110px}
   }
+  /* ---- 更窄：树图两栏改成上下 ----
+     并排的门槛是量出来的：一栏里最长的 UUID.jsonl 要 ~300px 才不被截断，
+     两栏加上 22×2 的边距和 14 的缝，窗口窄于 720 就只能上下堆。
+     上下之后每栏各占一半高度、各自滚动 —— min-height:0 是必须的，
+     flex 子项默认 min-height:auto，内容会把两栏一起撑出屏幕。 */
+  @media (max-width:720px){
+    #treewrap.on{
+      flex-direction:column;
+      /* 上下堆叠时必须从顶部起排：默认的 center 在 column 方向是「垂直居中」，
+         内容不满时两栏会浮在中间，看起来就是「没对齐上方」。 */
+      justify-content:flex-start;
+    }
+    #treewrap{
+      --tw-top:96px;
+      /* 底部留一个顶部的量（原来是两倍，实测下栏离底太高、白得像没画完） */
+      padding-bottom:var(--tw-top);
+    }
+    .tcol{max-width:none;min-height:0}
+  }
   /* 底部水面：横贯整个视口宽度，只占下留白那一条，不压到两列。
      用 fixed 而不是 absolute —— absolute 的 100% 只到 padding box，
      左右各会缺 22px 的边距；fixed 的 100% 是视口宽，两端齐边。
@@ -1010,17 +1029,38 @@
   /* ===== 性能角标（地址带 ?perf 才出现，平时完全不存在）=====
      卡顿这种事不能靠猜：圆数、布局耗时、同步耗时、帧率，四个数字一摆，
      就知道是「算得慢」还是「一直在算」还是「画得慢」。
-     平时零成本：PERF 为 false 时所有记账调用都被这一行 if 挡掉。 */
-  var PERF = /[?&]perf/.test(location.search);
+     平时零成本：PERF 为 false 时所有记账调用都被这一行 if 挡掉。
+
+     帧耗时报三个数，不是只报平均：
+     · p50 = 一半的帧比这快 —— 这是「平时有多顺」
+     · p99 = 最慢的那 1% 从这里开始 —— 这是「会不会突然顿一下」
+     · max = 单次最长 —— 留着对时间点用的
+     只看平均值会把「偶尔一次 300ms 长帧」抹平：99 帧 16ms 配 1 帧 300ms，
+     平均才 18.8ms，看着很健康，可那一下用户是能感觉到的。 */
+  var PERF = /[?&]perf/.test(location.search + location.hash);
   var pfT = (window.performance && performance.now) ? function(){ return performance.now(); }
                                                       : function(){ return Date.now(); };
+  var PF_CAP = 240;          /* 帧耗时保留最近 240 帧（约 4 秒） */
   var pfStat = { pack: 0, packN: 0, sync: 0, syncN: 0, n: 0, fps: 0, fMax: 0, box: null,
-                 frames: 0, acc: 0, t0: 0, t1: 0 };
+                 frames: 0, acc: 0, t0: 0, t1: 0,
+                 ft: new Float32Array(PF_CAP), fi: 0, fn: 0,
+                 p50: 0, p99: 0, max: 0 };
+  /* 把环形缓冲拿出来排序取分位。240 个数排序约 0.02ms，每 600ms 一次，
+     不进渲染路径，不影响被测的那个东西。 */
+  function pfPct(){
+    var n = pfStat.fn, i, arr = [];
+    if (!n) return;
+    for (i = 0; i < n; i++) arr.push(pfStat.ft[i]);
+    arr.sort(function(a, b){ return a - b; });
+    pfStat.p50 = arr[Math.floor((n - 1) * 0.50)];
+    pfStat.p99 = arr[Math.floor((n - 1) * 0.99)];
+    pfStat.max = arr[n - 1];
+  }
   function pfShow(){
     if (!PERF) return;
     if (!pfStat.box){
       var d = document.createElement('div');
-      d.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:9999;'
+      d.style.cssText = 'position:fixed;right:8px;bottom:38px;z-index:9999;'
         + 'font:11px/1.5 ui-monospace,Consolas,monospace;color:#fff;'
         + 'background:rgba(0,0,0,.62);padding:5px 8px;border-radius:7px;'
         + 'pointer-events:none;white-space:pre;letter-spacing:.2px';
@@ -1031,7 +1071,10 @@
       + '  |  排 ' + pfStat.pack.toFixed(1) + 'ms ×' + pfStat.packN
       + '  |  同步 ' + pfStat.sync.toFixed(1) + 'ms ×' + pfStat.syncN
       + '  |  轮询 ' + (pfStat.live || 0).toFixed(1) + 'ms ×' + (pfStat.liveN || 0)
-      + '\n' + pfStat.fps.toFixed(0) + ' fps  最长帧 ' + pfStat.fMax.toFixed(1) + 'ms';
+      + '\n' + (pfStat.fps ? pfStat.fps.toFixed(0) : '—') + ' fps'
+      + '   帧 p50 ' + pfStat.p50.toFixed(1)
+      + ' / p99 ' + pfStat.p99.toFixed(1)
+      + ' / max ' + pfStat.max.toFixed(1) + ' ms';
   }
   var SNAP = /[#&?]snap/.test(location.search + location.hash);
 
@@ -1066,6 +1109,8 @@
   })();
   if (/[#&]dbgsrc/.test(location.hash)) document.title = 'SOURCE=' + SOURCE + ' | SEARCH=' + location.search + ' | HASH=' + location.hash;
   var liveSeq = -1, liveReady = false, liveFail = 0, intoDone = false, lastSeenAt = 0;
+  /* 收尾是异步的（要等当前层的明细刷新回来），用一个代次号把过期的那一轮扔掉 */
+  var liveGen = 0, lastFresh = 0, lastCalls = 0;
   /* 默认进「全库」：「对话」只挂着当前一条会话，每次进来都像没数据 */
   /* 两种呈现方式：雨图（同心圆）/ 树图（双树） */
   var MODE = /[#&]mode=tree/.test(location.hash) ? 'tree' : 'rain';
@@ -1158,11 +1203,41 @@
         if (!nk) nk = 'turn';
       }
     }
-    if (nxt) out += ' <s>·</s> ' + nxt + ' ' + (CNT_UNIT[nk] || '项');
+    /* 子节点是「步」的时候不报这个数：回合底下会给没调用工具的那一轮补一个
+       「未执行」占位，于是子节点数（2151）比真实步数（2127）还大。
+       同一个「步」写两个不一样的数，比不写还糟 —— 交给下面那句报真实步数。 */
+    if (nxt && nk !== 'step') out += ' <s>·</s> ' + nxt + ' ' + (CNT_UNIT[nk] || '项');
     /* 叶子层已经报过「N 个文件」，根节点的 steps 又是同一个数 ——
        同一个数说两遍会变成「15 文件 · 15 文件」。 */
     if (f.steps && f.steps !== n) out += ' <s>·</s> ' + f.steps + ' ' + STEP_UNIT;
     return out;
+  }
+
+  /* 收尾：判定「哪些是刚到的」，并把标记沿祖先链带上来。
+     必须在当前层的明细刷新回来之后跑 —— 顺序反了，工作区那颗 at 会先把
+     新时间戳吃掉，深一层补上来的东西就永远判不出「更新」。 */
+  function commitFresh(rootNode, keepGroups, wasReady){
+    var steps = collectSteps(rootNode, []);
+    var newest = maxAt(steps);
+    var fresh = 0, k;
+    if (wasReady){
+      for (k = 0; k < steps.length; k++){
+        if ((steps[k].at || 0) > lastSeenAt){ steps[k].__fresh = 1; fresh++; }
+      }
+    }
+    lastSeenAt = newest;
+    lastFresh = fresh;
+    lastCalls = steps.length;
+
+    /* 只在真的新增时才重置合并展开状态，否则用户正在看的展开会被打断 */
+    if (fresh > 0){
+      openGroups = {};
+      /* 有新事件：把标记沿祖先链带上来，让当前视图那颗「装着新东西」的珠也冒一圈。 */
+      markPulseUp(rootNode);
+    } else openGroups = keepGroups;
+
+    needsBuild = true;
+    pulseAt = Date.now();
   }
 
   function clearFresh(node){
@@ -1170,6 +1245,18 @@
     delete node.__fresh;
     var k = node.children || [];
     for (var i = 0; i < k.length; i++) clearFresh(k[i]);
+  }
+  /* 新事件发生在最深处（某个步骤），而当前视图只画浅层 ——
+     把「这一支刚有新东西」沿着祖先链带上来，途经的每一层打一个一次性标记。
+     没有 parent 指针，所以靠递归返回值自底向上传。
+     标记由 buildItems 消费（冒一圈波纹后立刻删），不然每一帧都会再冒一次。 */
+  function markPulseUp(node){
+    if (!node) return false;
+    var hit = !!node.__fresh;
+    var k = node.children || [], i;
+    for (i = 0; i < k.length; i++) if (markPulseUp(k[i])) hit = true;
+    if (hit) node.__pulse = 1;
+    return hit;
   }
   /* 收集所有叶子步骤，用于按时间戳判定“哪些是刚到的” */
   function collectSteps(node, out){
@@ -1218,7 +1305,13 @@
     if (!n) return '';
     var k = n.children || [];
     if (n.kind === 'file') return k.length + ' 轮 · ' + (n.count || 0) + ' 次';
-    if (n.kind === 'session') return (n.steps || 0) + ' 步 · ' + (n.turns || 0) + ' 轮';
+    if (n.kind === 'session'){
+      var s = (n.steps || 0) + ' 步 · ' + (n.turns || 0) + ' 轮';
+      /* 超长会话只装最后 200 轮（详见 loadSession）。这里明说，
+         否则用户以为「这个会话一共就这么几十轮」。 */
+      if (n.more > 0) s += ' · 前 ' + n.more + ' 轮未载';
+      return s;
+    }
     /* 「任务」聚合层：直接下级是任务，不是会话 */
     if (n.kind === 'tasks') return (n.tasks || k.length) + ' 个任务 · ' + (n.sessions || 0) + ' 个会话';
     /* 工作区在 shelves 里 children 是空的（点开才填），数量得看 sessions 字段 */
@@ -1980,6 +2073,7 @@
 
     for (i = 0; i < beans.length; i++) byKey[beans[i].key] = beans[i];
 
+    var pulsed = 0;
     for (i = 0; i < targets.length; i++){
       var t = targets[i];
       seen[t.key] = 1;
@@ -1990,20 +2084,25 @@
           tx: t.tx, ty: t.ty, tr: t.tr
         };
         birthBean(b, i);          /* 出生状态只由这一个函数决定，见下 */
-        if (t.node) delete t.node.__fresh;
+        /* 出生本身就是「它来了」的反馈，不用再补一圈；
+           标记留着的话会在后面某一帧突然冒出来，看着像无故闪一下。 */
+        if (t.node){ delete t.node.__fresh; delete t.node.__pulse; }
         beans.push(b);
       } else {
-        /* 半径变了 = 这颗圆背后的数字更新了，给它一圈和出生落地时完全相同的涟漪，
-           位置和大小都不动，只是标记「这一颗刚有数据进来」。
-           · 判据取半径：半径本来就是按数值算的，数值一动它必动，比逐字段比对划算。
-           · 阈值 0.2px：布局缩放会有浮点抖动，不能按 0 判等；也不能太大，
-             否则「102→103 会话」这种小增量会被吞掉。
-           · 用此刻的 x/y/r 而不是目标值：万一它同时也在挪位，涟漪要从它现在所在的地方起，
-             否则会在一个空位上冒出一圈，看着像另一个东西。
-           · 只在数据轮询刚刷过（pulseAt）的 400ms 内算 —— 否则拖窗口大小
-             会让半径整体缩放，几十颗一起冒圈，纯噪音。 */
-        if (!SNAP && Date.now() - pulseAt < 400 && Math.abs(t.tr - b.tr) > 0.2)
+        /* 这一颗刚有数据进来，就给它一圈和出生落地时完全相同的涟漪，
+           位置和大小都不动，只是标记「这里更新了」。
+           · 主判据是 __pulse：applyLive 顺着祖先链打上来的「这一支有新事件」。
+             不能只靠半径 —— 半径按对数压过，加几百步可能只动 0.1px，
+             永远够不到阈值，表现就是「对话在动、图一点反应都没有」。
+           · 半径判据保留作为兜底：窗口缩放之类不经过 __pulse 的路径也能冒，
+             但只在数据轮询刚刷过（pulseAt）的 400ms 内算，
+             否则拖窗口会让几十颗一起冒圈，纯噪音。
+           · 用此刻的 x/y/r 而不是目标值：万一它同时也在挪位，涟漪要从它现在所在的地方起。 */
+        var pulse = !!(t.node && t.node.__pulse);
+        if (!SNAP && (pulse || (Date.now() - pulseAt < 400 && Math.abs(t.tr - b.tr) > 0.2))){
           spawnRipple(b.x, b.y, b.r, 0.35 + Math.min(1, b.r / 60));
+        }
+        if (pulse){ pulsed++; delete t.node.__pulse; }
 
         b.node = t.node; b.group = t.group; b.w = t.w; b.lane = t.lane; b.hostKey = t.hostKey;
         b.tx = t.tx; b.ty = t.ty; b.tr = t.tr; b.ta = 1;
@@ -2011,10 +2110,34 @@
       if (SNAP){ b.x = b.tx; b.y = b.ty; b.r = b.tr; b.a = 1; }
     }
     for (i = 0; i < beans.length; i++) if (!seen[beans[i].key]) beans[i].ta = 0;
+    /* 更新发生在这一屏看不见的地方（打开的是会话、新数据还没装进来），
+       就给中心那颗冒一圈 —— 否则「子体更新」传到这里就断了。
+       有珠子已经冒过就不重复冒，免得一下两圈。 */
+    var fn = focusNode();
+    if (fn && fn.__pulse){
+      delete fn.__pulse;
+      if (!pulsed && !SNAP) spawnRipple(CX, CY, R0() * 0.72, 0.7);
+    }
     /* 定态快照：没有动画帧可依赖，直接剔除退场的珠子 */
     if (SNAP){
       for (i = beans.length - 1; i >= 0; i--) if (!seen[beans[i].key]) beans.splice(i, 1);
     }
+    /* 布局落地前把规则过一遍：任何两颗珠子的**目标位**都不许叠着。
+
+       为什么必须有这一步：packItems 只在「输入指纹变了」时才重排，
+       而数据更新最常见的形态是**半径变大、位置不动**（珠子一个没多，
+       只是那颗的步数涨了 → tr 变大）。这时旧位置配新半径，
+       原地就会压住邻居 —— 用户看到的就是「一更新就重叠」。
+
+       ⚠️ 但它不能带 SHOVE_GAP。带缝的话，packItems 刚排好的每一对
+       都算「重叠 2px」，于是每叫一次就整体撑开一圈，最后贴到椭圆边界 ——
+       那才是「圆被拆成上下两团、中间空一大块」的真正来源。
+       不加缝时，布局本身不重叠 → 第一轮扫描 hit=0 直接 break，
+       一次都不推；只有真的被撑开了才动，而且只推到刚好不重叠。
+
+       代价一次 O(n²) 扫描（n=150 约 0.1ms），只在布局真的变了的时候跑。 */
+    relaxTargets();
+
     needsBuild = false;
     if (PERF) pfStat.n = beans.length;
   }
@@ -2026,12 +2149,34 @@
      跑两遍 ≈1.8ms，在 16.7ms 的一帧里还有的是余量；圆特别多时降成一遍。
      tx/ty 和 x/y 一起改：只改 x/y 会被 step() 的缓动拽回去，两边打架会抖。
      这些改动都是临时的，松手时 restoreHome() 一次性还原。 */
+  /* 拖动时的屏幕钳制：不许把圆拖出可视区。
+     上下各留 80，和 packItems 的 `ry = (H-160)/2` 是同一个口径 ——
+     上面那 80 躲胶囊按钮，下面那 80 躲「点开看圆圈…」那行提示。
+
+     为什么只在拖动期间钳：松手后布局由 packItems 决定，它在装不下时会
+     故意放松边界（packSoft 1.15/1.30）来换「不重叠」。那是布局的取舍，
+     不该被拖动逻辑覆盖。但手指拖的时候，把一颗圆甩到屏幕外什么也看不见，
+     那不是取舍，是丢了。 */
+  function clampScreen(b){
+    var r = b.r || 0;
+    var x0 = r, x1 = W - r, y0 = 80 + r, y1 = H - 80 - r;
+    /* 圆比可视区还大（超大工作区）：区间会反过来，钉在中间 */
+    if (x0 > x1){ x0 = x1 = W / 2; }
+    if (y0 > y1){ y0 = y1 = H / 2; }
+    if (b.x < x0) b.x = x0; else if (b.x > x1) b.x = x1;
+    if (b.y < y0) b.y = y0; else if (b.y > y1) b.y = y1;
+  }
+
   function relaxAll(){
     var n = beans.length;
     if (n < 2) return;
     var passes = n > 600 ? 1 : 2;
     var pinned = (drag && drag.moved) ? drag.bean : null;
     var PUSH = 0.72;              /* 一次只解掉七成重叠，剩下的交给后续帧，看着像在流 */
+    /* 单帧位移上限。密集区里两颗重叠几十像素，按 0.72 一帧就能推出十几像素，
+       连着几帧就是「整层炸开、往外跑」。让开是必要的（否则被拖的那颗会压着人），
+       但没必要一步到位 —— 限到 2.5px/帧，看着是慢慢让出一条道。 */
+    var MAXSTEP = 2.5;
     var i, j, pass;
 
     for (pass = 0; pass < passes; pass++){
@@ -2052,6 +2197,7 @@
             d = Math.sqrt(dx * dx + dy * dy);
           }
           var over = (need - d) * PUSH;
+          if (over > MAXSTEP) over = MAXSTEP;
           var ux = dx / d, uy = dy / d;
           if (a === pinned){
             b.x += ux * over; b.y += uy * over;
@@ -2079,7 +2225,9 @@
        改成两个方向各按自己的轴内缩，才是真正的椭圆内切。 */
     for (i = 0; i < n; i++){
       var c = beans[i];
-      if (c === pinned || c.a < 0.05) continue;
+      if (c.a < 0.05) continue;
+      /* 被按住那颗也钳：它跟着手指走，但同样不许出屏 */
+      if (c === pinned){ clampScreen(c); continue; }
       var ex = c.x - packCX, ey = c.y - packCY;
       var arx = Math.max(4, packRX * packSoft - c.r);
       var ary = Math.max(4, packRY * packSoft - c.r);
@@ -2088,26 +2236,12 @@
         c.x = packCX + ex / q; c.y = packCY + ey / q;
         c.tx = c.x; c.ty = c.y;
       }
+      /* 椭圆松到 1.15/1.30 时会比屏幕大，只按椭圆钳它们照样跑出去了 ——
+         所以椭圆钳完再过一遍屏幕钳。顺序不能反：先椭圆保住形状，
+         再屏幕兜住绝对边界。 */
+      clampScreen(c);
+      c.tx = c.x; c.ty = c.y;
     }
-  }
-
-  /* 静止态自检：有没有两圆叠着。
-     只统计「已经落位」的圆（a≈1、r>2）—— 出生时全都从画布中心往外飞，
-     那一段必然互相压着，那不是 bug。tol 给 2px 余量，免得浮点抖动就触发。 */
-  function hasOverlap(tol){
-    var n = beans.length, i, j;
-    for (i = 0; i < n; i++){
-      var a = beans[i];
-      if (a.a < 0.8 || a.r < 2) continue;
-      for (j = i + 1; j < n; j++){
-        var b = beans[j];
-        if (b.a < 0.8 || b.r < 2) continue;
-        var dx = b.x - a.x, dy = b.y - a.y;
-        var need = a.r + b.r - tol;
-        if (dx * dx + dy * dy < need * need) return true;
-      }
-    }
-    return false;
   }
 
   /* 松手复原：把所有人的目标位还成按下时的快照。
@@ -2118,8 +2252,7 @@
      用下标对位会出现「张冠李戴」—— A 的位置还给了 B，出来就是一堆重叠。 */
   function restoreHome(d){
     if (!d.bean) return;      /* 拖的是空白或中心，没有谁的位置被改过，不用还原 */
-    var snap = d.snap;
-    if (!snap) return;
+    var snap = d.snap || {};
     var put = 0;
     for (var i = 0; i < beans.length; i++){
       var b = beans[i];
@@ -2137,19 +2270,66 @@
       put++;
     }
     /* 一个都对不上（整层被换掉了）或拖动期间来过新数据：只能老实重排一次。
-       lastLayoutSig 清空是为了跳过「指纹相同就复用位置」——
-       此刻 beans 上的位置是拖动推挤过的，不是布局结果，复用就是复用一堆重叠。 */
+       ⚠️ 这里必须把 buildItems 的两个缓存一起清掉。
+       只清 lastLayoutSig 是白清 —— buildItems 第一行就按「输入指纹」直接把上一次
+       的 items 还回去，压根走不到用 lastLayoutSig 的那段布局代码。
+       表现就是：画面上明明有重叠、代码「调了 sync()」，却一颗圆都没动过。 */
     if (!put || needsBuild){
       lastLayoutSig = '';
+      lastBuildSig = '';
+      lastBuildOut = null;
       sync();
+      /* 重排也不保证完美（同一批数据排两遍，第二遍就可能差几像素），
+         所以两条路都以「目标位互不重叠」收尾，规则只在这里落一次地。 */
+      relaxTargets();
       return;
     }
-    /* 还完快照量一次：万一上面哪条路径没覆盖到（比如固定雨滴被挤到别人身上），
-       这里能兜住 —— 有重叠就重排，而不是把一堆叠着的圆留在屏幕上等用户刷新。
-       只在这个时刻量一次，不做定时轮询，所以没有常驻开销。 */
-    if (beans.length <= 400 && hasOverlap(1)){
-      lastLayoutSig = '';
-      sync();
+    /* 还原完再收一次尾：目标位之间不许有重叠。
+       快照还原本身是不够的 —— 拖动期间出生的珠子不在快照里、
+       key 变过的珠子对不上、固定珠还会压着别人。
+       这一步只动目标位，所以只要「有点重叠」它就跑，代价是一次 O(n²) 扫描。 */
+    relaxTargets();
+  }
+
+  /* 目标位之间的分离：只动 tx/ty，不碰 x/y，也不做椭圆钳制。
+     为什么不借 relaxAll：那个函数量的是**此刻的位置**、并且连带改 x/y。
+     松手那一刻珠子全在半路上，拿它来收目标位会把整层推散
+     （实测：3 对重叠 → 1067 对）。两个场景要的是两件事，不能共用一套。
+     为什么不用「重排一次」兜底：重排等于把这一层从头排一遍，用户刚才看的位置全变；
+     而且实测在「刚拖完」这个状态下重排反而更差（92 对重叠，同一份数据在静止时重排是 0 对）。
+     已经排好的层不该被推倒重来，差几像素推一推就够了。 */
+  function relaxTargets(){
+    var n = beans.length, i, j, pass, hit;
+    if (n < 2) return;
+    for (pass = 0; pass < 40; pass++){
+      hit = 0;
+      for (i = 0; i < n; i++){
+        var a = beans[i];
+        if (a.ta === 0 || a.pinned) continue;
+        var ar = a.tr || a.r;
+        if (ar < 2) continue;
+        for (j = i + 1; j < n; j++){
+          var b = beans[j];
+          if (b.ta === 0 || b.pinned) continue;
+          var br = b.tr || b.r;
+          if (br < 2) continue;
+          var dx = b.tx - a.tx, dy = b.ty - a.ty;
+          /* 不加 SHOVE_GAP：这个函数是「松手后把重叠收掉」，
+             不是「给每两颗之间塞一条缝」。加缝会让它和 packItems 的
+             口径不一致，于是每叫一次就把整层撑大一点。 */
+          var need = ar + br;
+          var d2 = dx * dx + dy * dy;
+          if (d2 >= need * need) continue;
+          var d = Math.sqrt(d2);
+          if (d < 0.01){ dx = 0.01 * (j - i + 1); dy = 0.012; d = Math.hypot(dx, dy); }
+          var over = (need - d) * 0.5;           /* 两边各让一半，一次解掉一半 */
+          var ux = dx / d, uy = dy / d;
+          a.tx -= ux * over; a.ty -= uy * over;
+          b.tx += ux * over; b.ty += uy * over;
+          hit++;
+        }
+      }
+      if (!hit) break;
     }
   }
 
@@ -3590,7 +3770,12 @@
   function loadSession(node, cb){
     if (!node || !node.sid || node.loading) return;
     node.loading = true;
-    fetch('/api/session?id=' + encodeURIComponent(node.sid) + '&limit=' + SESSION_PAGE,
+    /* tail=1：取**最后** 200 个回合，不是最前面 200 个。
+       原来取头部，一个 240 回合的会话里最新 40 回合压根没装进来 ——
+       点开看到的是三天前的开头，而且再怎么轮询也不会动。
+       回合数不超过一页时，服务端算出来的 offset 就是 0，行为跟以前一样。 */
+    fetch('/api/session?id=' + encodeURIComponent(node.sid) +
+          '&limit=' + SESSION_PAGE + '&tail=1',
           { cache: 'no-store' })
       .then(function(r){ return r.json(); })
       .then(function(d){
@@ -3599,8 +3784,8 @@
           node.children = d.tree.children;
           stampKids(node);
           node.lazy = false;
-          /* 超大会话只取了第一页 —— 记下总数，供界面提示「还有 N 个回合」 */
-          node.more = (d.tree._total || 0) - (d.tree.children || []).length;
+          /* 前面还有多少个回合没装进来（滑出窗口的老回合） */
+          node.more = d.tree._offset || 0;
           cb && cb();
         } else {
           /* 静默：到底了不是异常，胶囊继续报统计，不弹这类提示 */
@@ -3634,6 +3819,123 @@
         node.__loading = false;
         setLive('未识别工作区', true);
       });
+  }
+
+  /* ================= 当前打开这一层的实时刷新 =================
+
+     轮询 /api/shelves 只更新到「工作区」这一层 —— 它的孩子是懒加载的，
+     点开那一刻拉一次，之后再也不动。所以：
+       · 根层：珠子圆得好好的，一进空间就死
+       · 会话层：更死，连「最新那个回合」都没装进来
+
+     这里补上，代价是一轮最多一个请求：
+       · 工作区层 → /api/ws，2KB
+       · 会话层   → 只有它真的多了东西才补，而且只拉尾部 24 个回合、3 秒最多一次
+     不重拉整份会话明细（实测那份 544KB），也不做全树重扫。 */
+
+  var SESSION_TAIL = 24;     /* 每次补多少条尾部回合 */
+  var TURN_CAP     = 420;    /* 环形里最多装多少条回合 —— 再多布局就啃不动了 */
+  var TURN_EVERY   = 3000;   /* 同一个会话最快多久补一次 */
+  var sessPullAt = 0, sessPullSid = '';
+
+  /* 只跑一次 —— fetch 超时兜底和正常回来会同时到，不能重复收尾 */
+  function once(fn){
+    var done = false;
+    return function(){ if (done) return; done = true; fn(); };
+  }
+
+  /* 会话列表就地合并：同一个 sid 复用原对象，只改会变的数字。
+     顺序必须保持原样 —— 地址是按行号算的，一旦重排（比如按时新排到最前），
+     后面所有圆的地址全变，会集体「重新出生」闪一下。
+     真的新出现的会话追加在末尾 —— 它确实是新的，出生动画就是它该有的反馈。 */
+  function mergeSessionList(ws, fresh){
+    var old = ws.children || [];
+    if (!old.length || !fresh.length) return;
+    var by = {}, i, o, added = 0;
+    for (i = 0; i < old.length; i++) if (old[i].sid) by[old[i].sid] = old[i];
+    for (i = 0; i < fresh.length; i++){
+      o = fresh[i].sid ? by[fresh[i].sid] : null;
+      if (!o){ old.push(fresh[i]); added++; continue; }
+      o.at = fresh[i].at || 0;
+      o.steps = fresh[i].steps || 0;
+      o.turns = fresh[i].turns || 0;
+      if (fresh[i].files) o.files = fresh[i].files;
+    }
+    if (added) stampKids(ws);
+  }
+
+  /* 会话开着的时候，只补**新到**的东西：拉尾部一小段，逐条比。
+     · 新回合 → 接到末尾
+     · 老回合多了步骤 → 换掉它的孩子（最后一步往往就加在最后一轮里，
+       不认这条的话，下钻到「步」这一级永远看不到更新）
+     不重拉整份明细 —— 那是五百多 KB，每 1.5 秒一次纯属浪费。 */
+  function pullTurns(node, done){
+    var kids = node.children || [];
+    if (kids.length >= TURN_CAP){ done(); return; }
+    var now = Date.now();
+    if (node.sid === sessPullSid && now - sessPullAt < TURN_EVERY){ done(); return; }
+    sessPullSid = node.sid; sessPullAt = now;
+    fetch('/api/session?id=' + encodeURIComponent(node.sid) +
+          '&limit=' + SESSION_TAIL + '&tail=1', { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var got = (d && d.tree && d.tree.children) || [];
+        var by = {}, lastAt = 0, i, o;
+        for (i = 0; i < kids.length; i++){
+          if (kids[i].at) by[kids[i].at] = kids[i];
+          if ((kids[i].at || 0) > lastAt) lastAt = kids[i].at || 0;
+        }
+        var add = [], touched = 0;
+        for (i = 0; i < got.length; i++){
+          o = got[i].at ? by[got[i].at] : null;
+          if (o){
+            var oc = o.children || [], gc = got[i].children || [];
+            if (gc.length !== oc.length){
+              o.children = gc;
+              delete o.w;            /* 回合的权重按步数算，孩子变了必须重算 */
+              touched++;
+            }
+            continue;
+          }
+          add.push(got[i]);
+        }
+        if (add.length || touched){
+          add.sort(function(a, b){ return (a.at || 0) - (b.at || 0); });
+          for (i = 0; i < add.length && kids.length < TURN_CAP; i++) kids.push(add[i]);
+          stampKids(node);           /* 新回合、新步骤都要立刻有地址 */
+        }
+        done();
+      })
+      .catch(function(){ done(); });
+  }
+
+  function refreshOpenLevel(done){
+    done = done || function(){};
+    var ws = null, i;
+    /* 找当前这一层属于哪个工作区。会话/回合/步骤珠自己没有 wid，往上借。 */
+    for (i = path.length - 1; i >= 0; i--)
+      if (path[i] && path[i].kind === 'workspace' && path[i].wid){ ws = path[i]; break; }
+    /* 根层不用管：/api/shelves 每次回来就是新的 */
+    if (!ws || !(ws.children && ws.children.length)){ done(); return; }
+
+    /* 请求卡住也不能把这一轮的收尾卡死：1.5 秒到点就按现有数据收尾 */
+    var tail = once(done);
+    setTimeout(tail, 1500);
+
+    fetch('/api/ws?wid=' + encodeURIComponent(ws.wid), { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var f = path[path.length - 1];
+        var isSess = !!(f && f.sid && f.kind === 'session');
+        var beforeAt = isSess ? (f.at || 0) : 0;
+        var beforeSteps = isSess ? (f.steps || 0) : 0;
+        mergeSessionList(ws, (d && d.children) || []);
+        /* 打开的是会话：它自己多了东西，才去补尾部回合 */
+        if (isSess && ((f.at || 0) !== beforeAt || (f.steps || 0) !== beforeSteps))
+          pullTurns(f, tail);
+        else tail();
+      })
+      .catch(function(){ tail(); });
   }
 
   function applyLive(d){
@@ -3671,25 +3973,19 @@
       path.push(hit);
     }
 
-    /* 新到的事件 = 时间戳晚于上次看到的。首次加载不落雨滴。 */
-    var steps = collectSteps(root, []);
-    var newest = maxAt(steps);
-    var fresh = 0, i2, sp;
-    if (liveReady){
-      for (i2 = 0; i2 < steps.length; i2++){
-        sp = steps[i2];
-        if ((sp.at || 0) > lastSeenAt){ sp.__fresh = 1; fresh++; }
-      }
-    }
-    lastSeenAt = newest;
-
-    /* 只在真的新增时才重置合并展开状态，否则用户正在看的展开会被打断 */
-    if (fresh > 0) openGroups = {};
-    else openGroups = keepGroups;
-
+    /* 顺序很重要：**先刷新当前打开这一层，再判定「新到」**。
+       反过来的话，工作区那颗的 at 已经把这轮的新时间戳吃掉了，
+       深一层补上来的东西永远不可能「比上次更晚」，波纹就永远不冒。 */
+    var wasReady = liveReady;
     liveReady = true;
     needsBuild = true;
     pulseAt = Date.now();          /* 记账：这一轮是数据刷新，允许变化的圆冒涟漪 */
+
+    var __gen = ++liveGen;
+    refreshOpenLevel(function(){
+      if (__gen !== liveGen) return;    /* 已经有更新的一轮在跑，这次作废 */
+      commitFresh(root, keepGroups, wasReady);
+    });
 
     /* #into=N —— 直接下钻到第 N 个回合，可分享“某个回合”的视图
        #into=1.2 —— 点分路径，逐层下钻（第 1 个孩子的第 2 个孩子）。
@@ -3718,15 +4014,14 @@
        放在按名字恢复之后 —— 名字只是「别丢层」，地址才是「就要这一层」。 */
     if (pendAddr){ var pa = pendAddr; pendAddr = ''; applyAddr(pa); }
 
-    /* 每次拉取的记账，用于验证增量；#probe 时挂到 title 上 */
+    /* 每次拉取的记账，用于验证增量；#probe 时挂到 title 上。
+       这里的数字取「上一轮收尾时」的结果 —— 收尾是异步的，不能在这里等。 */
     if (!window.__log) window.__log = [];
-    window.__log.push({ calls: steps.length, fresh: fresh, at: newest });
+    window.__log.push({ calls: lastCalls, fresh: lastFresh, at: lastSeenAt });
     if (/[#&]probe/.test(location.search + location.hash)){
       document.title = 'LOG ' + JSON.stringify(window.__log);
     }
 
-    var secs = 0, i3;
-    for (i3 = 0; i3 < steps.length; i3++) secs += steps[i3].value || 0;
     if (/[#&]dump/.test(location.search + location.hash)){
       setTimeout(function(){
         /* 延时放宽到 2.5s：300ms 时首帧可能还没重建完，抓到的是一棵旧树 */
@@ -4080,11 +4375,19 @@
       if (pfStat.t1){
         var ft = now - pfStat.t1;
         if (ft > pfStat.fMax) pfStat.fMax = ft;
+        /* 写进环形缓冲：p50/p99 从这 240 个数算，不被平均值糊弄 */
+        pfStat.ft[pfStat.fi] = ft;
+        pfStat.fi = (pfStat.fi + 1) % PF_CAP;
+        if (pfStat.fn < PF_CAP) pfStat.fn++;
         var el = now - pfStat.t0;
-        if (el > 600){
-          pfStat.fps = pfStat.frames * 1000 / el;
+        /* 第一次也画出来（pfStat.box 还不存在时），否则要等 600ms 才见到面板，
+           而这 600ms 恰好是用户最想看的那一下。fps 要有窗口才算得准，
+           el 太短时先不写，留给下一轮。 */
+        if (!pfStat.box || el > 600){
+          if (el > 200) pfStat.fps = pfStat.frames * 1000 / el;
           pfStat.frames = 0;
           pfStat.t0 = now;
+          pfPct();
           pfShow();
         }
       } else {
@@ -4098,6 +4401,10 @@
        照样把上百颗珠子画一遍 —— 画的东西还在屏幕外，纯烧 CPU，
        于是树图自己也跟着卡。数据同步照跑（上面那行 sync），只是不画。 */
     if (MODE === 'tree'){
+      /* 每帧擦一次画布。不擦的话，切到树图时最后一帧雨图会留在底下 ——
+         两栏面板是半透明白，那些被压扁的珠子会透出来，看着像一堆细线鬼影。
+         只擦不画，一次全屏填充，成本可以忽略。 */
+      ctx.clearRect(0, 0, W, H);
       requestAnimationFrame(step);
       return;
     }
@@ -4149,20 +4456,29 @@
 
     /* 拖动期间：先把空位补上，再让所有圆两两让开。
        顺序不能反 —— 先推后补，补进来的那个就会压在别人身上没人管。
+
+       ⚠️ 必须带 `drag.bean`。按住空白或中心拖时 bean 是 null，
+       那时 relaxAll 里的 pinned 也是 null，于是每一对都「各让一半」——
+       整层每帧向外膨胀，拖得越久散得越开，最后全被挤到屏幕外。
+       按住空白拖本来不该移动任何东西，那只是「划了一下」。
+
        不拖动时这两个函数一次都不跑，平时零成本。
 
        注意这里**不能**改成「静止时每半秒自检一遍再推」：那等于给页面挂了一个
        永不停止的定时开销，而且只要判定阈值稍宽一点（比如 2px），排好的图也会
        被判成重叠，于是每半秒推一次、圆一直在微动，看着就是「很卡」。
        真正的兜底放在 restoreHome 末尾：松手那一刻量一次，有问题就重排。 */
-    if (drag && drag.moved){
+    if (drag && drag.moved && drag.bean){
       mendHole(dt);
       relaxAll();
     }
 
+    drawRipples(dt);
+
+    /* 涟漪画在圆**下面**：从圆心长出来那一小截本来就该被圆盖住，
+       露出来的只是外圈 —— 看着才像水面被压下去一圈，而不是圆上糊了个环。 */
     drawCenter();
     drawBeans();
-    drawRipples(dt);
 
     requestAnimationFrame(step);
   }
@@ -4170,16 +4486,8 @@
   /* ---------------- 交互 ---------------- */
 
   /* ============ 右键菜单 ============ */
-  function copyText(t){
-    t = String(t == null ? '' : t);
-    if (!t) return false;
-    try{
-      if (navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(t);
-        return true;
-      }
-    }catch(e){}
-    /* 老浏览器兜底：临时 textarea + execCommand */
+  /* 老浏览器兜底：临时 textarea + execCommand。抽出来是因为异步复制那条路也要用它 */
+  function legacyCopy(t){
     var ta = document.createElement('textarea');
     ta.value = t;
     ta.style.position = 'fixed';
@@ -4191,14 +4499,119 @@
     document.body.removeChild(ta);
     return ok;
   }
+  function copyText(t){
+    t = String(t == null ? '' : t);
+    if (!t) return false;
+    try{
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(t);
+        return true;
+      }
+    }catch(e){}
+    return legacyCopy(t);
+  }
+  /* 复制发生在 fetch 回调里时，用户手势链已经断了 —— clipboard.writeText 会被拒。
+     所以这条路必须等它的 Promise，失败了再退 execCommand；
+     不能像 copyText 那样乐观地先返回 true，那会让用户以为复制成功、粘出来还是旧内容。 */
+  function copyTextAsync(t, done){
+    t = String(t == null ? '' : t);
+    if (!t){ done(false); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t)
+        .then(function(){ done(true); })
+        .catch(function(){ done(legacyCopy(t)); });
+      return;
+    }
+    done(legacyCopy(t));
+  }
 
-  /* 这颗珠子在层级里的完整路径。合并出来的珠子没有单一节点，返回空串。 */
-  function beanPath(bean){
-    if (!bean || !bean.node || !bean.node.name) return '';
-    var arr = [], i;
-    for (i = 0; i < path.length; i++) if (path[i] && path[i].name) arr.push(path[i].name);
-    arr.push(bean.node.name);
-    return arr.join(' › ');
+  /* 这颗珠子在「资料库」里的层级地址：WorkBuddy 会话 › Desktop/… › 伊万。
+     和磁盘路径是两回事 —— 这条给 WorkBuddy 认（哪个工作区的哪个会话），
+     那条给文件系统认（文件到底在 C 盘哪里）。 */
+  /* 这颗珠子属于哪个**工作区**。工作区珠自己带 wid；会话、回合、步骤珠都没有，
+     所以要往上找 —— 这正是「在工作空间中打开」要的那一层：
+     不是「这个文件在哪」，而是「这堆东西属于哪个项目文件夹」。
+     和 diskOwnerOfBean 的区别：那个会就近拿到 sid（落到某个 .jsonl），
+     这个只要 wid，一路找到项目这一层为止。 */
+  function wsWidOfBean(bean){
+    if (!bean) return '';
+    var n = bean.node;
+    if (n && n.wid) return n.wid;
+    for (var i = path.length - 1; i >= 0; i--){
+      if (path[i] && path[i].wid) return path[i].wid;
+    }
+    return '';
+  }
+
+  /* 磁盘身份：自己没有，就往上找最近一个有的。
+     回合、步骤这些节点**不带** sid —— 每条都带，一个 2000 回合的会话要多出几百 KB，
+     而它们总归落在某个会话里，那个会话的 .jsonl 就是它们的磁盘位置。
+     就近往上找比「一律用最外层会话」准：目录节点自己有 disk，文件节点自己有 sid。 */
+  function diskOwnerOfBean(bean){
+    if (!bean) return null;
+    var n = bean.node, i, a;
+    if (n && (n.sid || n.rel || n.wid || n.disk)) return n;
+    for (i = path.length - 1; i >= 0; i--){
+      a = path[i];
+      if (a && (a.sid || a.rel || a.wid || a.disk)) return a;
+    }
+    return n;
+  }
+  function diskOwnerOfKey(key){
+    if (!key) return null;
+    var segs = String(key).split('/'), n;
+    for (var i = segs.length; i >= 1; i--){
+      n = treeNodeMap[segs.slice(0, i).join('/')];
+      if (n && (n.sid || n.rel || n.wid || n.disk)) return n;
+    }
+    return null;
+  }
+  /* 树图版的「属于哪个工作区」：只要 wid，一路往上找到工作区那一层。
+     和 diskOwnerOfKey 的分工一样 —— 那个就近落到具体文件，这个落到项目。 */
+  function wsWidOfKey(key){
+    if (!key) return '';
+    var segs = String(key).split('/'), n;
+    for (var i = segs.length; i >= 1; i--){
+      n = treeNodeMap[segs.slice(0, i).join('/')];
+      if (n && n.wid) return n.wid;
+    }
+    return '';
+  }
+
+  /* 让服务端把这一行的磁盘路径查出来。
+     浏览器自己碰不到文件系统，所以前端只传身份（sid/rel/wid），路径由服务端查 ——
+     反过来说，如果这里能直接指定路径，页面里任何一段脚本都能让本机弹资源管理器。
+     open=true 在资源管理器打开；open=false 只把路径交回来（dry，不弹窗）。 */
+  function withDiskPath(node, open, cb){
+    if (!node) return;
+    /* disk 是磁盘树自己报的相对位置（相对 ~/.workbuddy/projects），优先级高于 wid。
+       左右两栏的同一个工作区 wid 完全一样，但真实位置不同 ——
+       左栏是 projects 下那个机器命名的目录，右栏是桌面上的项目文件夹。 */
+    var body = { sid: node.sid || '', rel: node.rel || '',
+                 wid: node.wid || '', disk: node.disk || '' };
+    if (!body.sid && !body.rel && !body.wid && !body.disk){
+      flashTip('这一行没有磁盘位置（虚拟层）');
+      return;
+    }
+    if (!open) body.dry = true;
+    fetch('/api/reveal', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (!d || !d.ok){ flashTip((d && d.reason) || '打不开'); return; }
+      if (open) flashTip(d.dir ? '已在资源管理器打开' : '已在资源管理器选中');
+      else if (cb) cb(d.path);
+    }).catch(function(){ flashTip('打不开'); });
+  }
+  function revealNode(node){ withDiskPath(node, true); }
+  /* 复制的是磁盘真路径（C:\Users\…\xxx.jsonl），不是「资料库 › GonJui › …」那种层级。
+     以前 copypath 拼的是面包屑，粘到资源管理器地址栏打不开 —— 名字叫复制路径，干的不是这事。 */
+  function copyDiskPath(node){
+    withDiskPath(node, false, function(p){
+      copyTextAsync(p, function(ok){
+        flashTip(ok ? '已复制路径' : '复制失败');
+      });
+    });
   }
 
   function flashTip(text){
@@ -4334,7 +4747,6 @@
     ctxX = x; ctxY = y;
     var h = ctxItem('rain', '下雨', '刷新 F5');
     if (ctxBean){
-      var p = beanPath(ctxBean);
       h += '<hr>';
       h += ctxItem('pin', ctxBean.pinned ? '取消固定雨滴' : '固定雨滴',
                    ctxBean.pinned ? '松手不回归' : '松手不回归');
@@ -4342,7 +4754,20 @@
                    ctxBean.node ? '只看这一支' : '合并块不支持');
       h += '<hr>';
       h += ctxItem('copyname', '复制名称', '');
-      h += ctxItem('copypath', '复制路径', p ? '' : '无', p ? '' : 'off');
+      /* 雨图里不再有「复制路径」。
+         它复制的是「工作区 › 会话」这串层级文字，粘出去既不是磁盘路径
+         （资源管理器打不开），也不是能喂给别处的地址 —— 只是把屏幕上的
+         面包屑抄了一遍。用户在这儿真正想干的事是「去那个文件夹看看」，
+         所以换成直接的「在工作空间中打开」。 */
+      var own = diskOwnerOfBean(ctxBean);
+      var rv = !!(own && (own.sid || own.rel || own.wid || own.disk));
+      var wsw = wsWidOfBean(ctxBean);
+      h += ctxItem('openws', '在工作空间中打开',
+                   wsw ? '项目文件夹' : '不属于任何工作区',
+                   wsw ? '' : 'off');
+      h += ctxItem('reveal', '在资源管理器中打开',
+                   rv ? '磁盘位置' : '虚拟层没有磁盘位置',
+                   rv ? '' : 'off');
     } else {
       /* 雨图空白处只放全局项：主题 + 实时/离线。
          「调参」不在这里 —— 它调的是树图底下那层雨动画，跟雨图没有关系，
@@ -4363,9 +4788,9 @@
 
   /* 树图的右键：五件事固定不变 —— 调参（下方雨动画）/ 主题 / 复制名称 / 复制路径 / 离线。
      没有「下雨」「固定雨滴」「展开下级」：那些是雨图的珠子才有的动作。 */
-  function showCtxTree(x, y, name, p){
+  function showCtxTree(x, y, name, p, node, side, key){
     ctxBean = null;
-    ctxTree = { name: name || '', path: p || '' };
+    ctxTree = { name: name || '', path: p || '', node: node || null, side: side || '', key: key || '' };
     ctxX = x; ctxY = y;
     var h = ctxItem('tune', '调参', '下方雨动画');
     h += themeRow();
@@ -4373,7 +4798,31 @@
     /* 空白处不写「无」—— 「无」是在说结果（这一行没有名字），
        用户需要的是下一步做什么（去右击一个真正的名字）。所以改成指路。 */
     h += ctxItem('copyname', '复制名称', name ? '' : '请右击名称', name ? '' : 'off');
-    h += ctxItem('copypath', '复制路径', p ? '' : '请右击名称', p ? '' : 'off');
+    /* 复制路径分两种含义，跟着栏走：
+         左栏（磁盘视图）→ 物理路径，我要自己去 C 盘找它
+         右栏（资料库视图）→ 层级地址「工作区 › 会话」，让 WorkBuddy 自己去定位
+       两个是不同的问题，所以副标题直接写出来，不让人猜。 */
+    var isDisk = (side === 'disk');
+    var trv = node && (node.sid || node.rel || node.wid || node.disk);
+    var canCopy = isDisk ? !!trv : !!p;
+    h += ctxItem('copypath', '复制路径',
+                 isDisk ? '磁盘路径' : '工作区路径',
+                 canCopy ? '' : 'off');
+    /* 副标题只说明「这是个什么东西」，不回显具体值 ——
+       一长串 C:\Users\… 挂在菜单上反而把菜单撑歪，而且它每行都不一样，
+       看起来像在实时播报。真值复制出来看。
+       两个「打开」按栏分工：左栏是这个东西在硬盘哪儿，右栏是它属于哪个项目。
+       会话行自己没有 wid，往上借所属工作区的（wsWidOfKey）。 */
+    if (isDisk){
+      h += ctxItem('reveal', '在资源管理器中打开',
+                   trv ? '磁盘位置' : '虚拟层没有磁盘位置',
+                   trv ? '' : 'off');
+    } else {
+      var wsw = wsWidOfKey(key);
+      h += ctxItem('openws', '在工作空间中打开',
+                   wsw ? '项目文件夹' : '不属于任何工作区',
+                   wsw ? '' : 'off');
+    }
     h += '<hr>';
     h += ctxItem('link', offline ? '实时' : '离线',
                  offline ? '重新连接 WorkBuddy' : '断开 WorkBuddy');
@@ -4391,7 +4840,9 @@
     for (i = 0; i < segs.length; i++){
       acc = i ? acc + '/' + segs[i] : segs[i];
       n = treeNodeMap[acc];
-      if (n && n.name) out.push(n.name);
+      /* 根那一层是表的标题（Raindrop Chart），不是清单里的一行 ——
+         拼进地址只是噪音。"WorkBuddy 会话 › 工作区 › 会话" 已经足够定位了。 */
+      if (n && n.name && n.kind !== 'root') out.push(n.name);
     }
     return out.join(' › ');
   }
@@ -4421,8 +4872,23 @@
       var nm = ctxTree ? ctxTree.name : (b && b.node ? b.node.name : '');
       if (nm && copyText(nm)) flashTip('已复制名称');
     } else if (act === 'copypath'){
-      var pp = ctxTree ? ctxTree.path : beanPath(b);
-      if (pp && copyText(pp)) flashTip('已复制路径');
+      /* 只剩树图在用。磁盘视图给物理路径（我去找它），
+         资料库视图给层级地址（WorkBuddy 去找它）。 */
+      if (ctxTree){
+        if (ctxTree.side === 'disk' || !ctxTree.path){
+          copyDiskPath(ctxTree.node);
+        } else if (copyText(ctxTree.path)){
+          flashTip('已复制路径');
+        }
+      }
+    } else if (act === 'openws'){
+      /* 树图右栏 / 雨图共用这一个动作：定位到「这颗属于哪个工作区」。
+         树图给的是行 key，雨图给的是珠子 —— 两条路各取各的身份。 */
+      var wswid = ctxTree ? wsWidOfKey(ctxTree.key) : wsWidOfBean(b);
+      if (!wswid){ flashTip('这一层不属于任何工作区'); return; }
+      revealNode({ wid: wswid });
+    } else if (act === 'reveal'){
+      revealNode(ctxTree ? ctxTree.node : diskOwnerOfBean(b));
     } else if (act === 'tune'){
       openTune();
     } else if (act === 'link'){
@@ -4634,6 +5100,7 @@
         var nb = drag.bean;
         nb.x = nb.tx = e.clientX + drag.ox;
         nb.y = nb.ty = e.clientY + drag.oy;
+        clampScreen(nb);                 /* 甩不出屏幕：拖到边缘就顶住 */
         nb.gy = 0; nb.gv = 0;            /* 还在下落的，抓住就落地，别再往下掉 */
         /* 推开别人不在这里做：统一交给 step() 里的 relaxAll()，
            保证「任何两个圆都不重叠」这条规则只有一处实现。 */
@@ -4819,6 +5286,24 @@
     cv.style.cursor = 'default';
   });
 
+  /* 指针在画布外松开、或者直接切走了窗口 —— 兜一下。
+     画布这时收不到 pointerup，drag 会一直挂着：那颗圆永远跟着鼠标走，
+     松手本该做的还原也没人做，屏幕上就留下一颗顶着别人的圆。
+     嵌入在 webview / iframe 里时 setPointerCapture 不一定生效，这不是理论风险。 */
+  function dropDrag(){
+    if (!drag) return;
+    var d = drag;
+    drag = null;
+    cv.style.cursor = 'default';
+    if (d.moved && d.bean){
+      d.bean.gy = 0; d.bean.gv = 0;
+      restoreHome(d);
+    }
+  }
+  window.addEventListener('pointerup', dropDrag);
+  window.addEventListener('pointercancel', dropDrag);
+  window.addEventListener('blur', dropDrag);
+
   /* ---- 右键菜单 ---- */
   cv.addEventListener('contextmenu', function(e){
     e.preventDefault();
@@ -4841,7 +5326,14 @@
     }
     var key = el.getAttribute('data-k');
     var node = key ? treeNodeMap[key] : null;
-    showCtxTree(e.clientX, e.clientY, node ? dispName(node) : '', treePath(key));
+    /* keyPath 首段就是栏位：左栏从 'd' 起（disk），右栏从 'm' 起（资料库）。
+       复制路径要按栏区分含义，所以这个必须传下去。 */
+    var side = !key ? '' : ((key === 'd' || key.indexOf('d/') === 0) ? 'disk' : 'lib');
+    /* 交给菜单的 node 是「就近有磁盘身份的那一颗」：
+       回合/步骤行自己没有 sid，借所属会话的，这样每一行都点得开。
+       显示名仍用本行自己的，不受影响。 */
+    var own = key ? diskOwnerOfKey(key) : null;
+    showCtxTree(e.clientX, e.clientY, node ? dispName(node) : '', treePath(key), own || node, side, key);
   });
 
   ctxEl.addEventListener('mousedown', function(e){
@@ -4931,6 +5423,25 @@
   window.addEventListener('keydown', function(e){
     if (e.key === 'Escape'){
       expanded = false; openGroups = {}; sync();
+    }
+    /* 性能角标：Shift+P 随时开关，不用去改地址栏。
+       平时 PERF=false，所有记账调用都被那一行 if 挡掉，零成本；
+       打开的那一刻起才开始计数，所以它不是一个常驻的计时器 ——
+       想看「刚才那一下为什么卡」，就在卡完之前把它打开。 */
+    if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey
+        && (e.key === 'P' || e.key === 'p' || e.keyCode === 80)){
+      e.preventDefault();
+      PERF = !PERF;
+      if (PERF){
+        pfStat.t0 = 0; pfStat.t1 = 0; pfStat.frames = 0;
+        pfStat.fn = 0; pfStat.fi = 0;
+        pfStat.packN = 0; pfStat.syncN = 0; pfStat.liveN = 0;
+        pfStat.fMax = 0; pfStat.p50 = 0; pfStat.p99 = 0; pfStat.max = 0;
+        pfShow();
+      } else if (pfStat.box){
+        pfStat.box.parentNode.removeChild(pfStat.box);
+        pfStat.box = null;
+      }
     }
   });
 

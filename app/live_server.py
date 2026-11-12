@@ -426,12 +426,16 @@ def step_node(c, ev, seq, i, turn_name=""):
     return node
 
 
-def build_tree(ev, offset=0, limit=0):
+def build_tree(ev, offset=0, limit=0, sid=""):
     """对话视图：会话 -> 回合 -> 工具调用。
 
     offset/limit：只构建其中一段回合。
     实测有个 2340 回合的会话，全量构建要 0.75s、序列化出 3.9MB，
     浏览器拿到后画 2340 颗珠子要算 11 秒 —— 所以分段给。
+
+    sid：盖在**回合**上（不给步骤盖）。回合是这一步的磁盘归属 ——
+    步骤珠想「在资源管理器中打开」时，往上找一层就能拿到它所属会话的 .jsonl。
+    每个步骤都盖一遍的话，一个两千回合的会话要多出上百 KB，纯浪费。
     """
     turns = split_turns(ev)
     if not turns:
@@ -455,6 +459,7 @@ def build_tree(ev, offset=0, limit=0):
             "children": kids,
             "w": WT.w_count(len(kids)),
             "at": t["ts"],
+            **({"sid": sid} if sid else {}),
         })
     tree = {"name": ev["title"] or "本次会话", "children": out_turns}
     if limit and limit > 0:
@@ -1022,6 +1027,61 @@ def _fmt_at(at, with_sec=False):
         return ""
 
 
+def resolve_reveal(body):
+    """把前端给的身份（sid / rel / wid）翻成磁盘上真实存在的路径。
+
+    为什么不让前端直接传路径：那样这个接口就成了「打开任意路径」的开关，
+    页面里任何一段脚本都能让本机弹出资源管理器。只认身份，路径服务端自己查，
+    查不到就明确说查不到 —— 不猜。
+
+    返回 (路径, 是不是目录)；查不到返回 (None, None)。
+    """
+    HOME = os.path.expanduser("~")
+    sid = str(body.get("sid") or "")
+    rel = str(body.get("rel") or "")
+    wid = str(body.get("wid") or "")
+
+    # 0. 磁盘树自己报的相对路径（相对 ~/.workbuddy/projects）最准 ——
+    #    它说的就是「这一行在磁盘上的那个位置」，不会被同名的 wid 抢走。
+    #    带 .. 或绝对路径的一律不认：这个字段只该是 projects 底下的相对路径。
+    disk = str(body.get("disk") or "")
+    if disk:
+        root = os.path.normpath(PROJECTS)
+        p = os.path.normpath(os.path.join(root, disk))
+        if (p == root or p.startswith(root + os.sep)) and os.path.exists(p):
+            return p, os.path.isdir(p)
+
+    # 1. 会话：sid 就是库里那条 item 的 id，顺着它拿绝对路径最准
+    if sid:
+        try:
+            for it in scan_library():
+                if it.get("id") == sid:
+                    p = it.get("path") or ""
+                    if p and os.path.exists(p):
+                        return os.path.normpath(p), False
+        except Exception:
+            pass
+
+    # 2. 文件：rel 是相对主目录的路径
+    if rel:
+        p = os.path.join(HOME, rel.replace("/", os.sep).replace("\\", os.sep))
+        if os.path.exists(p):
+            return os.path.normpath(p), os.path.isdir(p)
+
+    # 3. 工作区：wid 也是相对主目录的路径（Desktop/GonJui/Raindrop Chart）。
+    #    目录可能已被改名/删掉，那就退一步按 projects 的 slug 规则反查。
+    if wid:
+        p = os.path.join(HOME, wid.replace("/", os.sep).replace("\\", os.sep))
+        if os.path.isdir(p):
+            return os.path.normpath(p), True
+        slug = wid.replace(":", "").replace("/", "-").replace("\\", "-")
+        p2 = os.path.join(PROJECTS, slug)
+        if os.path.isdir(p2):
+            return os.path.normpath(p2), True
+
+    return None, None
+
+
 def shorten_path_disp(children):
     """路径型名字只留「能分开自己的那一小段」。
 
@@ -1184,6 +1244,11 @@ def build_disk_tree(items):
             "kind": "dir",
             "name": os.path.basename(d),
             "wid": (arr[0].get("ws") or os.path.basename(d)),   # 与右列同一个身份
+            # 这一行在磁盘上的真实位置（相对 ~/.workbuddy/projects）。
+            # 为什么非要有它：右列同一个工作区也带 wid，但两边的「真实位置」不是一回事 ——
+            # 左列是 projects 下那个机器命名的目录，右列是用户桌面上的项目文件夹。
+            # 只给 wid，两边都会解析到桌面那个，左列点「打开」就跳到别处去了。
+            "disk": os.path.basename(d),
             "mono": True,
             "right": "%d 个会话" % len(arr),
             "children": kids,
@@ -1334,6 +1399,8 @@ def build_columns():
                 dkids = []
             left = {"kind": "src", "wid": sk,
                     "name": "~/.workbuddy/projects", "mono": True,
+                    # "." = projects 目录本身。有它这一行才点得开
+                    "disk": ".",
                     "children": dkids,
                     "right": "%d 个 jsonl" % _count_leaves({"children": dkids})}
         else:
@@ -1582,12 +1649,17 @@ def rel_path(fp):
     return m.group(1) if m else p
 
 
-def load_session(sid, offset=0, limit=0):
-    """按需读取一个会话的完整树（回合 -> 工具）。用过即缓存。
+def load_session(sid, offset=0, limit=0, tail=False):
+    """按需读取一个会话的完整树（回合 -> 工具）。
 
     ⚠️ 超大会话（实测有一个 2342 回合 / 3.8MB JSON）一次全给会把浏览器卡死：
        前端要把每个回合画成一颗珠子，2340 颗的物理布局要算 11 秒。
     所以支持**分段取**：limit=0 表示全给（老行为），limit>0 表示从 offset 起给 limit 个回合。
+
+    tail=True：取**最后** limit 个回合（忽略 offset）。
+       实时刷新要用这个 —— 「最新的东西」在文件末尾，而头部窗口是静止的：
+       一个 240 回合的会话按头部取 200 条，最新 40 回合根本不在里面，
+       于是「对话一直在动、点开却一动不动」。
     """
     items = scan_library()
     for it in items:
@@ -1595,7 +1667,10 @@ def load_session(sid, offset=0, limit=0):
             ev = load_events(it["path"])
             if ev is None:
                 return None
-            tree = build_tree(ev, offset, limit)
+            if tail and limit and limit > 0:
+                total = len(split_turns(ev))
+                offset = max(0, total - limit)
+            tree = build_tree(ev, offset, limit, sid)
             tree["sid"] = sid
             return tree
     return None
@@ -1627,8 +1702,16 @@ class State:
             if sig != self.sig:
                 ev = load_events(self.path)
                 if ev is not None:
-                    self.cache = build_tree(ev)
+                    # 会话 id 就是文件名去掉 .jsonl —— 让回合珠带上它，
+                    # 步骤珠往上找一层就能定位到自己所在的那个 .jsonl
+                    _sid = os.path.splitext(os.path.basename(self.path or ""))[0]
+                    self.cache = build_tree(ev, 0, 0, _sid)
                     self.space = build_space_tree(ev)
+                    # 根节点也要标 sid：雨图里会话那颗珠就是根，
+                    # 它没有 sid 的话「打开」会往上找到工作区去，指错一层
+                    if _sid:
+                        self.cache["sid"] = _sid
+                        self.space["sid"] = _sid
                     self.sig = sig
             calls = 0
             for t in (self.cache or {}).get("children", []):
@@ -1808,6 +1891,35 @@ class Handler(SimpleHTTPRequestHandler):
                 CMD["at"] = now
                 seq = CMD["seq"]
             self._json({"ok": True, "id": seq, "chain": chain})
+            return
+
+        # 在资源管理器里打开这一行对应的磁盘位置。
+        # 前端只传身份（sid/rel/wid），路径由 resolve_reveal 查 —— 见那里的说明。
+        if base == "/api/reveal":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n).decode("utf-8") or "{}") if n else {}
+            except Exception:
+                body = {}
+            p, isdir = resolve_reveal(body)
+            if not p:
+                self._json({"ok": False, "reason": "这一行在磁盘上找不到对应位置"}, 404)
+                return
+            # dry：只要路径，不弹窗。「复制路径」走这条 ——
+            # 复制一个东西不该顺手在屏幕上开一个窗口。
+            if body.get("dry"):
+                self._json({"ok": True, "path": p, "dir": bool(isdir)})
+                return
+            try:
+                if isdir:
+                    subprocess.Popen(["explorer", os.path.normpath(p)])
+                else:
+                    # /select, 让资源管理器打开所在文件夹并选中这个文件
+                    subprocess.Popen(["explorer", "/select," + os.path.normpath(p)])
+            except Exception as e:
+                self._json({"ok": False, "reason": "打不开：%s" % e}, 500)
+                return
+            self._json({"ok": True, "path": p, "dir": bool(isdir)})
             return
 
         # ---------------- 锁定 ----------------
@@ -2039,7 +2151,7 @@ class Handler(SimpleHTTPRequestHandler):
                 # 旧的 100*(1+0.5*log10(1+cnt)) 已经删掉：cnt 的口径每个源
                 # 都不一样（会话数 / 分组数 / 文件数），跨库不可比，
                 # 而且 log10 压完之后真实体量差 1000 倍、直径只差 11%。
-                kids.append({
+                k = {
                     "kind": "src",
                     "srcKey": sk,
                     "name": s.get("label") or sk,
@@ -2049,7 +2161,21 @@ class Handler(SimpleHTTPRequestHandler):
                     "count": cnt,
                     "countUnit": unit,
                     "connected": sk == "workbuddy",
-                })
+                }
+                # 这一颗珠子的磁盘位置就是 projects 目录本身。
+                # 不给的话雨图里点「在资源管理器中打开」会报「没有磁盘位置」——
+                # 它是整张图最外面那颗，恰恰是最该点得开的一颗。
+                if sk == "workbuddy":
+                    k["disk"] = "."
+                # 最新事件时间。雨图靠它判断「这一层有没有新东西进来」——
+                # 源本身不产生事件（事件在会话的最深处），不给时间戳的话，
+                # 停在根层时永远检测不到更新，波纹也就永远不冒。
+                if sk == "workbuddy":
+                    try:
+                        k["at"] = max((it.get("t1") or 0) for it in scan_library()) or 0
+                    except Exception:
+                        k["at"] = 0
+                kids.append(k)
             # 锁：整个数据源被锁时，库这一层就不出现（根下面直接少一个球）
             kids = self._flt_kids(kids)
             self._json({
@@ -2275,7 +2401,9 @@ class Handler(SimpleHTTPRequestHandler):
                     lim = int((q.get("limit") or ["0"])[0])
                 except Exception:
                     lim = 0
-                tree = load_session(sid, off, lim) if sid else None
+                # tail=1：取最后一段。实时刷新只看得到「最新」，取头部等于永远看不到新东西。
+                tl = (q.get("tail") or ["0"])[0] in ("1", "true", "yes")
+                tree = load_session(sid, off, lim, tl) if sid else None
                 # 锁：会话被锁就当作不存在（404），连「有这个东西」都不透露。
                 # 工作区被锁时，它下面的会话同样查不到 —— 否则知道 sid 就能绕过。
                 if sid:
