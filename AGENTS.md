@@ -59,17 +59,21 @@ git clone https://github.com/Ange1314/raindrop-chart.git
 ```
 
 No git, or the clone hangs? `github.com` is intermittently unreachable from mainland China —
-`api.github.com` can answer while `github.com` does not. Try the tag archive instead:
+`api.github.com` can answer while `github.com` does not. Download the **branch** archive instead:
 
 ```bash
-curl -L -o rd.zip https://github.com/Ange1314/raindrop-chart/archive/refs/tags/v2.7.0.zip
-unzip rd.zip          # yields raindrop-chart-2.7.0/
+curl -L -o rd.zip https://github.com/Ange1314/raindrop-chart/archive/refs/heads/main.zip
+unzip rd.zip          # yields raindrop-chart-main/
 ```
+
+Point at `refs/heads/main`, **not** at `refs/tags/<version>`. A tag archive is frozen at the day it
+was cut — it silently goes stale the moment the next commit lands, and the person installing ends up
+with old bugs. `main.zip` is always today's code.
 
 If that host also fails, use a mirror — this one is known to work from there:
 
 ```bash
-curl -L -o rd.zip https://ghfast.top/https://github.com/Ange1314/raindrop-chart/archive/refs/tags/v2.7.0.zip
+curl -L -o rd.zip https://ghfast.top/https://github.com/Ange1314/raindrop-chart/archive/refs/heads/main.zip
 ```
 
 Confirm you got the whole thing: the folder must contain `双击启动雨滴图.vbs`, `app/`, and this

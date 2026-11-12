@@ -103,7 +103,7 @@ Hand your AI assistant this, verbatim:
 
 ```text
 Install https://github.com/Ange1314/raindrop-chart on this machine by following the AGENTS.md
-at the repo root, exactly: clone it first (fall back to the tag zip, then the ghfast.top mirror),
+at the repo root, exactly: clone it first (fall back to the main-branch zip, then the ghfast.top mirror),
 then do its four steps — check Python, start the server, register the MCP entry, and verify the
 handshake for real. Never write into app/, never touch data/, never upload anything, never install
 dependencies. If a step fails, stop and tell me — don't improvise.

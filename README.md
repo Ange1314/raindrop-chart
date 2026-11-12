@@ -96,7 +96,7 @@ chmod +x start.sh && ./start.sh
 
 ```text
 把 https://github.com/Ange1314/raindrop-chart 装到本机，严格按仓库根目录的 AGENTS.md 执行：
-先 clone（拉不动就下 tag zip，再不行走 ghfast.top 镜像），然后照它写的四步走完 ——
+先 clone（拉不动就下 main 分支的 zip，再不行走 ghfast.top 镜像），然后照它写的四步走完 ——
 查 Python、起服务、注册 MCP、做一次真实握手验证。不许改 app/、不许动 data/、
 不许上传任何东西、不许装依赖，失败就停下来告诉我，别自己编方案。
 ```
