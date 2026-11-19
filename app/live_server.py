@@ -30,6 +30,8 @@ import sqlite3
 import subprocess
 import webbrowser
 import bisect
+import ctypes                     # 只用 windll 弹「选文件夹 / 选文件」框（见 pick_dir）
+from ctypes import wintypes       # 上面那两个对话框结构体要用到 DWORD/WORD/BOOL
 import threading
 import urllib.request
 from urllib.parse import urlparse, parse_qs
@@ -90,7 +92,9 @@ try:
     # datasource.py 只在函数内部反向 import 本模块，所以这里顶层导入不会成环。
     from datasource import (get_source, list_sources, register_csv_file,
                             register_tree_file, IMPORT_DIR, WorkBuddySource,
-                            CsvSource, remove_source)
+                            CsvSource, ClaudeCodeSource, remove_source,
+                            expand_node, claude_path_of, source_available,
+                            tree_from_json, JSON_MAX_ROWS, TreeSource, REGISTRY)
 
     # 统一的权重口径（等效步数 + 对数配平的半径映射 + 有效度）。
     # 别再在别处自己写公式 —— 13 处各算各的，是「大小不可比」的根源。
@@ -137,7 +141,7 @@ APP_ID = "raindrop-chart"          # /api/ping 自报家门用，判断端口上
 # 唯一版本号：mcp_server 直接读它（SERVER_VERSION = LS.VERSION），不再各写一份。
 # ⚠️ 还有一处：ring.html 右下角 #ver —— 那是字符串字面量，改版本要手改。
 #    （改版时记得两处一起改，或者直接跑 release/build_release.py 让它自动对齐）
-VERSION = "2.7.0"
+VERSION = "2.8.0"
 SERVER_PORT = [PORT]               # 实际监听到的端口（可能因占用后移）
 
 # 页面标题：用来认出「已经开着的那个窗口」。
@@ -1027,6 +1031,12 @@ def _fmt_at(at, with_sec=False):
         return ""
 
 
+# 「打开文件」不许替你运行的扩展名：点一下就执行，代价太大。
+# 命中这些只做资源管理器定位，要运行由用户自己双击。
+RUN_BLOCK = (".exe", ".bat", ".cmd", ".com", ".msi", ".scr", ".ps1", ".vbs",
+             ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".reg", ".lnk", ".jar")
+
+
 def resolve_reveal(body):
     """把前端给的身份（sid / rel / wid）翻成磁盘上真实存在的路径。
 
@@ -1051,8 +1061,34 @@ def resolve_reveal(body):
         if (p == root or p.startswith(root + os.sep)) and os.path.exists(p):
             return p, os.path.isdir(p)
 
+    # 0b. 结构树里的一个文件：库本身记着扫描根（src_path），文件只报「库内相对路径」。
+    #     为什么不给每个文件下发绝对路径：一棵 25 万文件的树会因此多出几十 MB，
+    #     而前端拿到的绝对路径等于「打开任意文件」的开关。
+    #     这里由服务端拿两个字段现场拼，并且**必须落在库根之内** ——
+    #     传 ../../Windows 过来会拼出去，所以拼完要再验一次前缀。
+    src_key = str(body.get("src") or "")
+    in_lib = str(body.get("in") or "")
+    if src_key and in_lib:
+        s = REGISTRY.get(src_key)
+        root_src = (getattr(s, "src_path", "") or "") if isinstance(s, TreeSource) else ""
+        if root_src:
+            base = os.path.normpath(root_src)
+            p = os.path.normpath(os.path.join(base, in_lib.replace("/", os.sep)))
+            # ⚠️ base 是盘根时会带尾分隔符（normpath("D:\\") 仍是 "D:\"），
+            # 直接 base + os.sep 就拼成 "D:\\"，于是**所有合法路径都验不过**。
+            # 先削掉尾分隔符再比；再用 normcase 抹平 Windows 的大小写差异。
+            b_nc = os.path.normcase(base.rstrip("\\/") or base)
+            p_nc = os.path.normcase(p)
+            if (p_nc == b_nc or p_nc.startswith(b_nc + os.sep)) and os.path.exists(p):
+                return p, os.path.isdir(p)
+
     # 1. 会话：sid 就是库里那条 item 的 id，顺着它拿绝对路径最准
     if sid:
+        # Claude Code 的会话 id 自带位置（claude:<项目目录>/<文件>.jsonl），
+        # 直接翻出来 —— 为了打开一个文件去扫全库没有必要
+        p_cc = claude_path_of(sid)
+        if p_cc:
+            return os.path.normpath(p_cc), False
         try:
             for it in scan_library():
                 if it.get("id") == sid:
@@ -1214,6 +1250,26 @@ def polish_tree(node):
     return node
 
 
+def ws_label_cached(dirname):
+    """ws_label 的带缓存版本。
+
+    ws_label 要拿文件系统当裁判试 2^6 种拆分，树图两栏每次刷新都会走到它。
+    18 个工作区不算慢，但同一个目录名没必要每次重算 —— 目录名和它的可读名
+    是一一对应的，缓存不会脏（目录改名就是新名字，天然换 key）。
+    """
+    v = _WS_LABEL_CACHE.get(dirname)
+    if v is None:
+        try:
+            v = ws_label(dirname)
+        except Exception:
+            v = dirname
+        _WS_LABEL_CACHE[dirname] = v
+    return v or dirname
+
+
+_WS_LABEL_CACHE = {}
+
+
 def build_disk_tree(items):
     """磁盘上真实的样子：projects/ -> 工作区目录名 -> *.jsonl 文件名。
 
@@ -1242,7 +1298,12 @@ def build_disk_tree(items):
             })
         node = {
             "kind": "dir",
-            "name": os.path.basename(d),
+            # 左栏这两行以前直接写磁盘目录名，于是 WorkBuddy 那一支显示成
+            # 「c-Users-Lenovo-Desktop-GonJui-Raindrop Chart」—— 那是把用户目录
+            # 路径里的 / 换成 - 得到的目录名，看着就是一串路径。右栏一直是可读名，
+            # 两栏说的是同一批东西却用两套名字，这就是「不符合显示名称规则」。
+            # disk 字段保持原始目录名不动：点「在资源管理器中打开」靠它定位。
+            "name": ws_label_cached(os.path.basename(d)),
             "wid": (arr[0].get("ws") or os.path.basename(d)),   # 与右列同一个身份
             # 这一行在磁盘上的真实位置（相对 ~/.workbuddy/projects）。
             # 为什么非要有它：右列同一个工作区也带 wid，但两边的「真实位置」不是一回事 ——
@@ -1336,21 +1397,6 @@ def _count_leaves(node):
     return n
 
 
-def _addr_of(path):
-    """地址列怎么显示：程序目录里的写成相对路径，家目录里的写成 ~/…
-    绝对路径太长，会把左列挤成一行省略号，反而认不出这是哪个库。"""
-    if not path:
-        return ""
-    fp = os.path.abspath(path).replace("\\", "/")
-    for root, pfx in ((HERE, ""), (os.path.expanduser("~"), "~/")):
-        r = root.replace("\\", "/").rstrip("/")
-        if fp == r:
-            return pfx or "."
-        if fp.startswith(r + "/"):
-            return pfx + fp[len(r) + 1:]
-    return fp
-
-
 def _size_text(n):
     """小文件也要有话可说：124 字节写成「0 KB」等于没写。"""
     n = n or 0
@@ -1361,12 +1407,439 @@ def _size_text(n):
     return "%d B" % int(n)
 
 
+# ------------------------------------------------------------------
+#  扫目录：把「浏览器枚举文件夹」这条慢路换掉
+#
+#  浏览器那条路（webkitdirectory）为每个文件造一个 File 对象，
+#  20 万文件要几十秒，而且全程 JS 拿不到任何信号 —— 页面完全失明，
+#  连「正在读…」都刷不出来（提示写在 change 里，而 change 要等枚举跑完）。
+#
+#  服务端扫盘快一个数量级：Windows 的 os.scandir 返回 DirEntry，
+#  文件名和大小在 FindFirstFile 里一次就拿到了，不需要额外 stat。
+#  实测 7.9 万 ~ 13 万文件/秒（含取大小）。
+#
+#  任务放后台线程跑，前端轮询进度 —— 扫 100 万文件也不冻界面。
+# ------------------------------------------------------------------
+SCAN_MAX = 400000
+
+SCAN = {"id": "", "state": "idle", "path": "", "mode": "new", "n": 0, "dirs": 0,
+        "bytes": 0, "cut": False, "key": "", "label": "", "error": "",
+        "secs": 0.0, "t0": 0.0}
+SCAN_LOCK = threading.Lock()
+
+
+def _save_tree(name, files, src_path=""):
+    """把「路径 + 大小」清单落盘并注册成一个数据源。
+
+    扫目录和 /api/source/tree 共用这一段 —— key 只能有一处算法。
+    上次「导入两次出现两个同名库、删一个另一个也消失」就是因为
+    同一套 key 计算散在三个地方各写了一遍。
+
+    src_path：这份快照是从哪个目录扫来的。**存了它才能重扫** ——
+    浏览器选文件夹那条路拿不到绝对路径（安全限制只给相对路径），
+    所以那种库 src 是空的，右栏的 ↻ 会置灰。
+    """
+    os.makedirs(IMPORT_DIR, exist_ok=True)
+    slug = "tree-" + hashlib.md5(("tree:" + name).encode("utf-8")).hexdigest()[:8]
+    fp = os.path.join(IMPORT_DIR, slug + ".tree.json")
+    body = {"name": name, "files": files}
+    if src_path:
+        body["src"] = src_path
+        body["at"] = int(time.time())
+    io.open(fp, "w", encoding="utf-8").write(json.dumps(body, ensure_ascii=False))
+    return register_tree_file(fp, label=name, key=slug)
+
+
+def _scan_walk(root, max_files=SCAN_MAX):
+    """只认「文件 + 大小」，不读任何文件内容。
+
+    读不了的目录（权限、路径过长）跳过并继续，不中断整次扫描 ——
+    扫 D 盘必然撞上 System Volume Information 这类进不去的目录。
+    """
+    files = []
+    ndirs = 0
+    total = 0
+    stack = [(root, "")]
+    while stack:
+        d, rel = stack.pop()
+        try:
+            with os.scandir(d) as it:
+                for e in it:
+                    try:
+                        if e.is_dir(follow_symlinks=False):
+                            ndirs += 1
+                            stack.append((e.path, (rel + "/" + e.name) if rel else e.name))
+                        else:
+                            sz = e.stat(follow_symlinks=False).st_size
+                            total += sz
+                            files.append([(rel + "/" + e.name) if rel else e.name, sz])
+                            if len(files) >= max_files:
+                                return files, ndirs, total, True
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        # 每出完一个目录报一次数：扫大目录时前端靠这个显示进展
+        with SCAN_LOCK:
+            SCAN["n"] = len(files)
+            SCAN["dirs"] = ndirs
+            SCAN["bytes"] = total
+    return files, ndirs, total, False
+
+
+def _scan_job(job, root, name, max_files):
+    try:
+        files, ndirs, total, cut = _scan_walk(root, max_files)
+        with SCAN_LOCK:
+            SCAN["n"] = len(files)
+            SCAN["dirs"] = ndirs
+            SCAN["bytes"] = total
+        if not files:
+            with SCAN_LOCK:
+                SCAN.update(state="error", error="这个目录里没有文件")
+            return
+        # src_path 一定要传：它是下次能重扫的唯一凭据
+        src = _save_tree(name, files, src_path=root)
+        with SCAN_LOCK:
+            SCAN.update(state="done", key=src.key, label=src.label, cut=cut,
+                        secs=round(time.time() - SCAN["t0"], 2))
+    except Exception as e:
+        with SCAN_LOCK:
+            SCAN.update(state="error", error=str(e))
+
+
+def start_scan(root, name, mode="new"):
+    """起一个后台扫描任务，返回 job id。SCAN 是全局单例：同一时刻只跑一个。
+
+    扫目录（新库）和重读（已有库）都走这里 —— 同一套启动逻辑散在两处，
+    迟早一处记得检查「上一个还没结束」、另一处忘了。
+    """
+    with SCAN_LOCK:
+        if SCAN["state"] == "running":
+            raise ScanBusy("上一次扫描还没结束")
+        job = secrets.token_hex(6)
+        SCAN.update({"id": job, "state": "running", "path": root,
+                     "mode": mode or "new", "n": 0, "dirs": 0,
+                     "bytes": 0, "cut": False,
+                     "key": "", "label": "", "error": "", "secs": 0.0,
+                     "t0": time.time()})
+    threading.Thread(target=_scan_job, args=(job, root, name, SCAN_MAX),
+                     daemon=True).start()
+    return job
+
+
+class ScanBusy(Exception):
+    """上一次扫描还没结束。单独一个类型，调用方才分得清该回 409 还是 500。"""
+
+
+def _scan_norm(raw):
+    """用户输入的路径要能直接用。三件事：去引号、补盘符斜杠、展开 ~。
+
+    「复制路径」从资源管理器拷出来是带引号的，不处理就一定扫不到。
+    """
+    p = str(raw or "").strip().strip('"').strip("'").strip()
+    if not p:
+        return ""
+    p = os.path.expanduser(p)
+    if re.match(r"^[A-Za-z]:$", p):
+        p += "\\"                 # 「D:」是「D 盘的当前目录」，不是盘根
+    return os.path.abspath(p)
+
+
+# ---------------------------------------------------------------- 选文件夹对话框
+# 为什么要有一个「服务端弹框」：浏览器那条路（<input webkitdirectory>）只给相对
+# 路径，网页永远拿不到「这是 D 盘哪个目录」；而扫描接口要的正是绝对路径。
+# 所以这个框只能由我们自己进程弹 —— 用户点一下就行，不用手打路径。
+#
+# 为什么用 ctypes 而不是 tkinter：本机这个 python 没装 tkinter
+# （ModuleNotFoundError: No module named 'tkinter'），而 SHBrowseForFolderW
+# 是系统自带的，零依赖。
+_BFFM_SETSELECTIONW = 0x0467
+# 回调对象必须留在模块级：局部变量一被回收，系统那边还攥着函数指针，就是野指针
+_BROWSE_CB = None
+
+
+def _browse_cb(hwnd, msg, _lp, data):
+    """对话框初始化时把「上次用的目录」选中。data 是字符串指针。"""
+    if msg == 1 and data:                      # BFFM_INITIALIZED
+        try:
+            ctypes.windll.user32.SendMessageW(hwnd, _BFFM_SETSELECTIONW, 1, data)
+        except Exception:
+            pass
+    return 0
+
+
+def pick_dir(start=""):
+    """弹系统原生的「选择文件夹」框，返回绝对路径；取消返回 ""。
+
+    失败（弹不出来、没有桌面）抛 RuntimeError —— 调用方退回手填。
+    自动化里设环境变量 RD_PICK_FAKE=<路径> 就不会真弹框（假值直接返回）。
+    """
+    fake = os.environ.get("RD_PICK_FAKE")
+    if fake is not None:
+        return fake
+
+    if os.name != "nt":
+        raise RuntimeError("只有 Windows 有系统选目录框")
+
+    global _BROWSE_CB
+    try:
+        user32 = ctypes.windll.user32
+        shell32 = ctypes.windll.shell32
+        ole32 = ctypes.windll.ole32
+
+        class BROWSEINFOW(ctypes.Structure):
+            _fields_ = [("hwndOwner", ctypes.c_void_p),
+                        ("pidlRoot", ctypes.c_void_p),
+                        ("pszDisplayName", ctypes.c_wchar_p),
+                        ("lpszTitle", ctypes.c_wchar_p),
+                        ("ulFlags", ctypes.c_uint),
+                        ("lpfn", ctypes.c_void_p),
+                        ("lParam", ctypes.c_void_p),
+                        ("iImage", ctypes.c_int)]
+
+        shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+        shell32.SHBrowseForFolderW.argtypes = [ctypes.POINTER(BROWSEINFOW)]
+        shell32.SHGetPathFromIDListW.restype = ctypes.c_int
+        shell32.SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+
+        # shell 的对话框要 STA，用 OleInitialize 而不是 CoInitialize
+        ole32.OleInitialize(None)
+        try:
+            buf = ctypes.create_unicode_buffer(260)
+            start = _scan_norm(start) if start else ""
+            keep = ctypes.create_unicode_buffer(start) if start and os.path.isdir(start) else None
+
+            bi = BROWSEINFOW()
+            # 把当前前台窗口当 owner：框会压在你正在点的那个窗口上，不会跑到后面去
+            bi.hwndOwner = user32.GetForegroundWindow()
+            bi.pidlRoot = None
+            bi.pszDisplayName = ctypes.cast(buf, ctypes.c_wchar_p)
+            bi.lpszTitle = "选一个要扫描的文件夹"
+            # BIF_RETURNONLYFSDIRS 只认真实目录（不让人选「网络」这种空壳）
+            # BIF_EDITBOX 给一个能粘贴路径的输入栏：手上有路径的人不用一层层点
+            # BIF_NEWDIALOGSTYLE 可拖动、可新建文件夹
+            bi.ulFlags = 0x0001 | 0x0010 | 0x0040
+            bi.lpfn = None
+            bi.lParam = None
+            if keep is not None:
+                _BROWSE_CB = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p,
+                                                ctypes.c_uint, ctypes.c_void_p,
+                                                ctypes.c_void_p)(_browse_cb)
+                bi.lpfn = ctypes.cast(_BROWSE_CB, ctypes.c_void_p)
+                bi.lParam = ctypes.cast(keep, ctypes.c_void_p)
+
+            pidl = shell32.SHBrowseForFolderW(ctypes.byref(bi))
+            if not pidl:
+                return ""                      # 用户点了取消：不是错误
+            out = ctypes.create_unicode_buffer(1024)
+            shell32.SHGetPathFromIDListW(pidl, out)
+            ole32.CoTaskMemFree(ctypes.c_void_p(pidl))
+            return out.value or ""
+        finally:
+            ole32.CoUninitialize()
+    except Exception as e:
+        raise RuntimeError("弹不出系统的选文件夹框：%s" % e)
+
+
+# ---------------------------------------------------------------- 选文件对话框
+_FILE_FILTER = ("支持的文件\0*.csv;*.json;*.md;*.markdown;*.opml;*.xml\0"
+                "CSV\0*.csv\0JSON\0*.json\0Markdown\0*.md;*.markdown\0"
+                "OPML\0*.opml;*.xml\0所有文件\0*.*\0\0")
+
+
+def pick_file(start=""):
+    """弹系统原生的「打开文件」框，返回绝对路径；取消返回 ""。
+
+    和 pick_dir 同一个道理：浏览器只会给一个 File 对象，**永远不告诉你它在
+    哪个目录**，而「点 ↻ 能不能重新读」全靠这个路径。所以这一步也在服务端做。
+    """
+    fake = os.environ.get("RD_PICK_FAKE")
+    if fake is not None:
+        return fake
+    if os.name != "nt":
+        raise RuntimeError("只有 Windows 有系统的选文件框")
+    try:
+        user32 = ctypes.windll.user32
+        comdlg32 = ctypes.windll.comdlg32
+
+        class OPENFILENAMEW(ctypes.Structure):
+            _fields_ = [("lStructSize", wintypes.DWORD),
+                        ("hwndOwner", ctypes.c_void_p),
+                        ("hInstance", ctypes.c_void_p),
+                        ("lpstrFilter", ctypes.c_wchar_p),
+                        ("lpstrCustomFilter", ctypes.c_wchar_p),
+                        ("nMaxCustFilter", wintypes.DWORD),
+                        ("nFilterIndex", wintypes.DWORD),
+                        ("lpstrFile", ctypes.c_wchar_p),
+                        ("nMaxFile", wintypes.DWORD),
+                        ("lpstrFileTitle", ctypes.c_wchar_p),
+                        ("nMaxFileTitle", wintypes.DWORD),
+                        ("lpstrInitialDir", ctypes.c_wchar_p),
+                        ("lpstrTitle", ctypes.c_wchar_p),
+                        ("Flags", wintypes.DWORD),
+                        ("nFileOffset", wintypes.WORD),
+                        ("nFileExtension", wintypes.WORD),
+                        ("lpstrDefExt", ctypes.c_wchar_p),
+                        ("lCustData", ctypes.c_void_p),
+                        ("lpfnHook", ctypes.c_void_p),
+                        ("lpTemplateName", ctypes.c_wchar_p),
+                        ("pvReserved", ctypes.c_void_p),
+                        ("dwReserved", wintypes.DWORD),
+                        ("FlagsEx", wintypes.DWORD)]
+
+        buf = ctypes.create_unicode_buffer(4096)
+        ofn = OPENFILENAMEW()
+        ofn.lStructSize = ctypes.sizeof(OPENFILENAMEW)
+        ofn.hwndOwner = user32.GetForegroundWindow()
+        ofn.lpstrFilter = _FILE_FILTER
+        ofn.lpstrFile = ctypes.cast(buf, ctypes.c_wchar_p)
+        ofn.nMaxFile = ctypes.sizeof(buf) // 2       # 单位是字符，不是字节
+        ofn.lpstrTitle = "选一个文件"
+        start = _scan_norm(start) if start else ""
+        ofn.lpstrInitialDir = start if (start and os.path.isdir(start)) else None
+        # FILEMUSTEXIST 0x1000 | PATHMUSTEXIST 0x800 | EXPLORER 0x80000 | NOCHANGEDIR 0x8
+        ofn.Flags = 0x1000 | 0x800 | 0x80000 | 0x8
+
+        comdlg32.GetOpenFileNameW.restype = wintypes.BOOL
+        comdlg32.GetOpenFileNameW.argtypes = [ctypes.POINTER(OPENFILENAMEW)]
+        if not comdlg32.GetOpenFileNameW(ctypes.byref(ofn)):
+            return ""
+        return buf.value or ""
+    except Exception as e:
+        raise RuntimeError("弹不出系统的选文件框：%s" % e)
+
+
+# ---------------------------------------------------------------- 文档 → 结构树
+def md_to_tree(text, name="Markdown"):
+    """Markdown → {"name", "files": [[路径, 字数], …]}：「标题」当目录，「段落」当叶子。
+
+    为什么不拿标题当叶子：一篇文档通常只有几个标题，那样整棵树只剩几个圆，
+    看不出内容分布。真正在被读的是段落 —— 一段一颗珠子，量级才接近文件夹库。
+    """
+    lines = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    heads = []                       # 当前标题栈 [(层级, 标题)]
+    files, buf, idx = [], [], 0
+
+    def flush():
+        nonlocal idx
+        if not buf:
+            return
+        para = " ".join(x.strip() for x in buf).strip()
+        buf.clear()
+        para = re.sub(r"^[#>*\-\s]+", "", para).strip()
+        if not para:
+            return
+        idx += 1
+        # 段名取前 12 个字：树图里认得出是哪一段，又不会被长句撑爆那一行
+        label = re.sub(r"[`*_\[\]()#>`]+", "", para)[:12].strip() or ("第 %d 段" % idx)
+        path = "/".join([h[1] for h in heads if h[1]] + [label])
+        files.append([path, len(para)])
+
+    for ln in lines:
+        m = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", ln)
+        if m:
+            flush()
+            lvl = len(m.group(1))
+            while heads and heads[-1][0] >= lvl:
+                heads.pop()
+            heads.append((lvl, m.group(2).strip()))
+            continue
+        if not ln.strip():
+            flush()                  # 空行 = 段落结束
+            continue
+        # 列表项各自成段：一眼扫过去几行列表如果并成一段，
+        # 那一颗珠子会替好几件事投票，雨滴图就分不出谁轻谁重
+        if re.match(r"^\s*([-*+]|\d+[.)])\s+", ln):
+            flush()
+            buf.append(ln)
+            flush()
+            continue
+        buf.append(ln)
+    flush()
+    return {"name": name, "files": files}
+
+
+def opml_to_tree(text, name="OPML"):
+    """OPML → 同一形状：outline 的嵌套就是树，没有子节点的 outline 是叶子。"""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(text)
+    except Exception as e:
+        raise ValueError("这个 OPML 读不了：%s" % e)
+    files = []
+
+    def walk(el, trail):
+        for o in el.findall("outline"):
+            t = (o.get("text") or o.get("title") or "").strip()
+            kids = o.findall("outline")
+            cur = trail + ([t] if t else [])
+            if kids:
+                walk(o, cur)
+            else:
+                note = o.get("_note") or ""
+                # OPML 里没有「文件大小」：用标题 + 备注的字数当大小，
+                # 至少让圆的大小跟内容多少相关，而不是全一样大
+                files.append(["/".join(cur) or "条目", max(1, len(t) + len(note))])
+
+    body = root.find("body")
+    walk(body if body is not None else root, [])
+    return {"name": name, "files": files}
+
+
+def file_to_tree(path):
+    """按扩展名把一个磁盘文件变成「结构树」(name, files)，供文件类数据源使用。"""
+    ext = os.path.splitext(path)[1].lower()
+    name = os.path.splitext(os.path.basename(path))[0] or "文件"
+    with io.open(path, encoding="utf-8-sig", errors="replace") as fh:
+        raw = fh.read()
+    if ext == ".json":
+        data = tree_from_json(json.loads(raw), name)
+    elif ext in (".md", ".markdown"):
+        data = md_to_tree(raw, name)
+    elif ext in (".opml", ".xml"):
+        data = opml_to_tree(raw, name)
+    else:
+        raise ValueError("不认识的文件类型：%s" % (ext or "（没有扩展名）"))
+    data["name"] = data.get("name") or name
+    return data
+
+
+def link_fields(src, sk):
+    """行尾第一格（连接点 / ↻ 重读）用哪几个字段 —— 左右两栏共用一份口径。
+
+    为什么两边都给：这一格说的是「我和磁盘现在是什么关系」，属于**磁盘侧**的事，
+    所以它画在「磁盘上真实的样子」那一栏的行尾；「雨图显示的样子」那边只剩
+    显示（眼睛 / 锁）。字段口径只在这里算一次，两栏各算一遍迟早会算出两种样子。
+
+    三种库三种来源，但对外只有一件事要回答：**现在还能不能回去重读**。
+    """
+    if isinstance(src, TreeSource):
+        sp = getattr(src, "src_path", "") or ""
+        return {"live": False,
+                "src": sp,
+                "at": getattr(src, "scanned_at", 0) or 0,
+                "ref": "ok" if sp else "nopath"}
+    if isinstance(src, CsvSource) and not getattr(src, "is_example", False):
+        # CSV 库读的就是磁盘上那个文件（导入时不复制），所以它天然可重读 ——
+        # 「上次读取时间」直接用文件修改时间，那才是这份数据真正的时间。
+        p = getattr(src, "path", "") or ""
+        try:
+            at = int(os.path.getmtime(p))
+        except Exception:
+            at = 0
+        return {"live": False, "src": p, "at": at,
+                "ref": "ok" if os.path.isfile(p) else "gone"}
+    return {"live": sk in ("workbuddy", "claude"), "src": "", "at": 0, "ref": ""}
+
+
 def build_columns():
     disk_kids, lib_kids = [], []
     for s in list_sources():
         sk = s.get("key") or ""
-        # 没装 WorkBuddy 的机器上这颗永远是空的，别在这儿摆一行空地址
-        if sk == "workbuddy" and not WorkBuddySource.available():
+        # 本机没有这个源的数据，就别在这儿摆一行空地址
+        # （没装 WorkBuddy、没装 Claude Code 都是这种情况）
+        if not source_available(sk):
             continue
         try:
             src = get_source(sk)
@@ -1410,15 +1883,29 @@ def build_columns():
             except Exception:
                 size = 0
             if is_csv:
-                # CSV 在磁盘上就是一个文件，没有可展开的结构
-                left = {"kind": "src", "wid": sk, "name": _addr_of(p) or label,
-                        "mono": True, "children": [], "right": _size_text(size)}
+                # CSV 在磁盘上就是一个文件，没有可展开的结构。
+                # 名字用文件名，不写完整路径 —— 路径太长会把右栏的数字挤没了，
+                # 而「这个文件在哪」右键「在资源管理器中打开」就能看到。
+                left = {"kind": "src", "wid": sk, "name": label,
+                        "children": [], "right": _size_text(size)}
+            elif getattr(src, "disk_label", ""):
+                # 会话类数据源（Claude Code）：左栏老实指向它的数据目录。
+                # 这里没有第二棵「磁盘上的目录树」可画，就不假装有 ——
+                # 挂一棵和右栏同构的列表，比编一层不存在的结构可信。
+                left = {"kind": "src", "wid": sk, "name": src.disk_label,
+                        "mono": True, "children": kids,
+                        "right": "%d 个会话" % (sm.get("count") or 0)}
             else:
                 # 文件夹导入：浏览器不给绝对路径（安全限制），
-                # 只能指向我们落盘的那份结构文件 —— 不假装知道原目录在哪
+                # 只能指向我们落盘的那份结构文件 —— 不假装知道原目录在哪。
+                # 那串 tree-<hash>.tree.json 不显示：它是实现细节，
+                # 用户认库靠名字，认位置靠右键。
                 left = {"kind": "src", "wid": sk, "name": label,
-                        "note": _addr_of(p), "children": kids,
+                        "children": kids,
                         "right": "%d 个目录 · %d 个文件" % (cnt, sm.get("steps") or 0)}
+        # 左栏行尾也要那一格：连接点 / ↻ 说的是「和磁盘的关系」，
+        # 挂在「磁盘上真实的样子」这一栏才名副其实（右栏只剩 眼睛 / 锁 / ×）
+        left.update(link_fields(src, sk))
         disk_kids.append(left)
 
         # ---- 右：雨图里它叫什么、量是多少 ----
@@ -1430,6 +1917,9 @@ def build_columns():
         lib_kids.append({
             "kind": "src", "wid": sk, "name": label, "children": kids,
             "right": ("%d 个%s" % (lc, lu)) if lc else "",
+            "steps": sm.get("steps") or 0,
+            # live / src / at / ref 统一由 link_fields 给，左右两栏一份口径
+            **link_fields(src, sk),
         })
 
     # 根行的数字由表头负责（前端 rowsOf 对 depth 0 不渲染 right）：
@@ -1800,6 +2290,40 @@ class Handler(SimpleHTTPRequestHandler):
                 return True
         return False
 
+    # ---------------- 本机访问闸 ----------------
+    # 服务只听 127.0.0.1，但「只听回环」挡不住 DNS rebinding：
+    # 恶意页面把 evil.com 解析到 127.0.0.1，浏览器就认为自己在跟 evil.com:7788
+    # 说话，而它其实连到了这里 —— 同源策略当场失效，它能把 /api/sessions
+    # 里的会话全读走，甚至调 /api/reveal 用 os.startfile 打开本机文件。
+    # Host 头是它唯一不敢改的东西（改了就不再同源），所以在这里卡一道。
+    # 顺带卡 Origin：跨站 fetch 一定带 Origin，页面自己带的是 127.0.0.1。
+    _LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+    @staticmethod
+    def _hostname_of(s):
+        """从 'host:port' / '[::1]:port' 里取主机名，去端口去方括号。"""
+        s = (s or "").strip().lower()
+        if not s:
+            return ""
+        if s.startswith("["):
+            end = s.find("]")
+            return s[1:end] if end > 0 else ""
+        return s.rsplit(":", 1)[0] if ":" in s else s
+
+    def _gate(self):
+        """不是本机来的就拒。返回 True 表示已经拦下，调用方直接 return。"""
+        host = self.headers.get("Host")
+        if self._hostname_of(host) not in self._LOOPBACK:
+            self._json({"ok": False, "reason": "只接受本机访问（Host: %s）" % (host or "空")}, 403)
+            return True
+        origin = self.headers.get("Origin")
+        if origin:                       # 同源请求可能不带；带了就必须是回环
+            if origin.strip().lower() == "null" or \
+               self._hostname_of(origin.split("://", 1)[-1]) not in self._LOOPBACK:
+                self._json({"ok": False, "reason": "拒绝跨站请求（Origin: %s）" % origin}, 403)
+                return True
+        return False
+
     def _flt_tree(self, tree):
         """外部读取：剪掉被锁的（连子树）。本人：原样。"""
         if self._is_ui():
@@ -1863,6 +2387,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self._gate():
+            return
         base = self.path.split("?")[0]
 
         # AI 让雨滴图跳到某一层。只在雨滴图开着的时候才生效。
@@ -1903,6 +2429,15 @@ class Handler(SimpleHTTPRequestHandler):
                 body = {}
             p, isdir = resolve_reveal(body)
             if not p:
+                # 早年的库（浏览器导入）没记住扫描根，所以「库内相对路径」拼不出绝对路径。
+                # 这时候说「找不到」等于让人以为是文件被删了 —— 直说是路径没记，并给出下一步。
+                _k = str(body.get("src") or "")
+                _s = REGISTRY.get(_k)
+                if _k and body.get("in") and isinstance(_s, TreeSource) \
+                        and not (getattr(_s, "src_path", "") or ""):
+                    self._json({"ok": False, "reason":
+                                "这个库没记住原扫描路径。用「新增数据源 · 扫描目录」选同一个文件夹重导一次，之后就能定位"}, 404)
+                    return
                 self._json({"ok": False, "reason": "这一行在磁盘上找不到对应位置"}, 404)
                 return
             # dry：只要路径，不弹窗。「复制路径」走这条 ——
@@ -1911,6 +2446,23 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json({"ok": True, "path": p, "dir": bool(isdir)})
                 return
             try:
+                # run：用系统默认程序**打开这个文件本身**（双击那个动作）。
+                # 只对文件成立 —— 目录的「打开」就是进资源管理器，不需要另一条路。
+                if body.get("run") and not isdir and hasattr(os, "startfile"):
+                    ext = os.path.splitext(p)[1].lower()
+                    if ext in RUN_BLOCK:
+                        # 可执行/脚本类**不替你运行**：界面上「点一下」太轻了，
+                        # 不值得用一个误触换一次执行。定位到它，要跑就自己双击。
+                        try:
+                            subprocess.Popen(["explorer", "/select," + os.path.normpath(p)])
+                        except Exception:
+                            pass
+                        self._json({"ok": False, "located": True,
+                                    "reason": "这是可执行文件（%s），没有替你运行；已在资源管理器中定位" % ext})
+                        return
+                    os.startfile(os.path.normpath(p))
+                    self._json({"ok": True, "path": p, "dir": False, "ran": True})
+                    return
                 if isdir:
                     subprocess.Popen(["explorer", os.path.normpath(p)])
                 else:
@@ -1992,9 +2544,39 @@ class Handler(SimpleHTTPRequestHandler):
                 fname = os.path.basename((q.get("name") or ["import.csv"])[0]) or "import.csv"
                 # 只保留安全字符：这个文件名会落盘，不能带路径分隔符
                 safe = re.sub(r"[^\w.\-]+", "_", fname) or "import.csv"
+                ext = os.path.splitext(safe)[1].lower()
+                os.makedirs(IMPORT_DIR, exist_ok=True)
+
+                if ext == ".json":
+                    # JSON 先折成「结构树」再落盘：落盘格式和文件夹导入一模一样，
+                    # 于是 TreeSource / 扫目录 / 断开 / 归档 / 树图两栏全都不用改。
+                    try:
+                        obj = json.loads(raw)
+                    except Exception as e:
+                        self._json({"ok": False, "error": "这个 JSON 读不了：%s" % e}, 400)
+                        return
+                    data = tree_from_json(obj, os.path.splitext(fname)[0] or "JSON")
+                    if not data.get("files"):
+                        self._json({"ok": False,
+                                    "error": "里面没有可以画的东西（空对象 / 空数组）"}, 400)
+                        return
+                    if len(data["files"]) > JSON_MAX_ROWS:
+                        data["files"] = data["files"][:JSON_MAX_ROWS]
+                    slug = "tree-" + hashlib.md5(
+                        ("tree:" + data["name"]).encode("utf-8")).hexdigest()[:8]
+                    fp = os.path.join(IMPORT_DIR, slug + ".tree.json")
+                    io.open(fp, "w", encoding="utf-8").write(
+                        json.dumps(data, ensure_ascii=False))
+                    src = register_tree_file(fp, label=data["name"], key=slug)
+                    self._json({"ok": True, "key": src.key, "label": src.label,
+                                "files": len(data["files"]), "sources": list_sources()})
+                    return
+
+                if ext != ".csv":
+                    self._json({"ok": False, "error": "只认 .csv 和 .json 两种文件"}, 400)
+                    return
                 if not safe.lower().endswith(".csv"):
                     safe += ".csv"
-                os.makedirs(IMPORT_DIR, exist_ok=True)
                 fp = os.path.join(IMPORT_DIR, safe)
                 io.open(fp, "w", encoding="utf-8").write(raw)
                 src = register_csv_file(fp, label=fname)
@@ -2013,8 +2595,8 @@ class Handler(SimpleHTTPRequestHandler):
                 if n <= 0:
                     self._json({"ok": False, "error": "没有收到内容"}, 400)
                     return
-                if n > 32 * 1024 * 1024:
-                    self._json({"ok": False, "error": "路径清单太大（>32MB）"}, 400)
+                if n > 64 * 1024 * 1024:
+                    self._json({"ok": False, "error": "路径清单太大（>64MB）"}, 400)
                     return
                 payload = json.loads(self.rfile.read(n).decode("utf-8", "replace"))
                 files = payload.get("files") or []
@@ -2022,22 +2604,207 @@ class Handler(SimpleHTTPRequestHandler):
                     self._json({"ok": False, "error": "里面没有文件"}, 400)
                     return
                 name = str(payload.get("name") or "结构树").strip() or "结构树"
-                os.makedirs(IMPORT_DIR, exist_ok=True)
-                # 同名重复导入覆盖同一份 —— 不要堆出一串同名库
-                slug = "tree-" + hashlib.md5(("tree:" + name).encode("utf-8")).hexdigest()[:8]
-                fp = os.path.join(IMPORT_DIR, slug + ".tree.json")
-                io.open(fp, "w", encoding="utf-8").write(
-                    json.dumps({"name": name, "files": files}, ensure_ascii=False))
-                src = register_tree_file(fp, label=name, key=slug)
+                src = _save_tree(name, files)
                 self._json({"ok": True, "key": src.key, "label": src.label,
                             "files": len(files), "sources": list_sources()})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
             return
 
+        # 弹一个系统原生的「选文件夹」框，把绝对路径交回前端。
+        # 浏览器给不了绝对路径，所以这一步只能在服务端做（见 pick_dir 注释）。
+        # 用户在框里点取消不报错：返回 ok + 空 path，前端安静收场就行。
+        if base == "/api/pick/dir":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(n).decode("utf-8", "replace")) if n > 0 else {}
+                try:
+                    path = pick_dir(str(payload.get("start") or ""))
+                except RuntimeError as e:
+                    # 弹不出来不是致命错：前端会退回「手填路径」
+                    self._json({"ok": False, "error": str(e)}, 200)
+                    return
+                self._json({"ok": True, "path": path})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
+        # 弹「打开文件」框。和选目录同理：浏览器给不了绝对路径，
+        # 而「点 ↻ 能不能重读」全看这个路径。
+        if base == "/api/pick/file":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(n).decode("utf-8", "replace")) if n > 0 else {}
+                try:
+                    path = pick_file(str(payload.get("start") or ""))
+                except RuntimeError as e:
+                    self._json({"ok": False, "error": str(e)}, 200)
+                    return
+                self._json({"ok": True, "path": path})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
+        # 按**磁盘路径**导入一个文件（CSV / JSON / Markdown / OPML）。
+        # 与浏览器上传的区别只有一个，但很关键：这里有绝对路径，
+        # 所以 CSV 可以直接读原文件（真链接），其余三种解析成结构树后
+        # 把路径记进 src，↻ 就能重新解析。
+        if base == "/api/source/addfile":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(n).decode("utf-8", "replace")) if n > 0 else {}
+                p = _scan_norm(payload.get("path"))
+                if not p:
+                    self._json({"ok": False, "error": "没有路径"}, 400)
+                    return
+                if not os.path.isfile(p):
+                    self._json({"ok": False, "error": "这个文件不存在：%s" % p}, 400)
+                    return
+                ext = os.path.splitext(p)[1].lower()
+                fname = os.path.basename(p)
+
+                if ext == ".csv":
+                    # CSV 不复制：直接读原文件。它本来就是一列列数据，
+                    # 复制一份只会让"改了原文件看不到"这种事再发生一次。
+                    src = register_csv_file(p, label=fname)
+                    self._json({"ok": True, "key": src.key, "label": src.label,
+                                "mode": "csv", "src": p})
+                    return
+
+                data = file_to_tree(p)
+                files = data.get("files") or []
+                if not files:
+                    self._json({"ok": False, "error": "这个文件里没有可以画的内容"}, 400)
+                    return
+                if len(files) > JSON_MAX_ROWS:
+                    files = files[:JSON_MAX_ROWS]
+                src = _save_tree(data.get("name") or fname, files, src_path=p)
+                self._json({"ok": True, "key": src.key, "label": src.label,
+                            "files": len(files), "mode": "tree", "src": p})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
+        # 重读一个库。**统一入口**：目录型去重扫，文件型去重解析，CSV 读原文件。
+        # 全放在这里判断，前端就不用知道自己的库到底是哪种 ——
+        # 那个判断只要有一处写歪，就会出现「明明点了 ↻ 什么都没发生」。
+        if base == "/api/source/reload":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(n).decode("utf-8", "replace")) if n > 0 else {}
+                rk = str(payload.get("key") or "").strip()
+                src = get_source(rk)
+                if src is None:
+                    self._json({"ok": False, "error": "没有这个库：%s" % rk}, 404)
+                    return
+
+                if isinstance(src, CsvSource):
+                    p = getattr(src, "path", "") or ""
+                    if not os.path.isfile(p):
+                        self._json({"ok": False,
+                                    "error": "原文件不在了：%s\n（文件库读的是磁盘上那个文件，它被移走或删掉了）" % p}, 400)
+                        return
+                    # CsvSource 每次取树都重读磁盘，没有缓存要清
+                    self._json({"ok": True, "mode": "csv", "n": 0})
+                    return
+
+                if isinstance(src, TreeSource):
+                    sp = src.src_path
+                    if not sp:
+                        self._json({"ok": False,
+                                    "error": "这个库没记住原始路径（早期浏览器导入的那种），"
+                                             "用「新增数据源」重新选一次文件就能刷新"}, 400)
+                        return
+                    if os.path.isdir(sp):
+                        name = os.path.basename(sp.rstrip("\\/")) or sp
+                        try:
+                            job = start_scan(sp, name, "refresh")
+                        except ScanBusy:
+                            self._json({"ok": False, "error": "上一次扫描还没结束"}, 409)
+                            return
+                        self._json({"ok": True, "mode": "dir", "job": job})
+                        return
+                    if os.path.isfile(sp):
+                        data = file_to_tree(sp)
+                        files = (data.get("files") or [])[:JSON_MAX_ROWS]
+                        if not files:
+                            self._json({"ok": False, "error": "这个文件里没有可以画的内容"}, 400)
+                            return
+                        body = {"name": data.get("name") or src.label, "files": files,
+                                "src": sp, "at": int(time.time())}
+                        io.open(src.path, "w", encoding="utf-8").write(
+                            json.dumps(body, ensure_ascii=False))
+                        self._json({"ok": True, "mode": "file", "n": len(files)})
+                        return
+                    self._json({"ok": False, "error": "原来的位置已经不在了：%s" % sp}, 400)
+                    return
+
+                self._json({"ok": False, "error": "这个库不支持重读"}, 400)
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
+        # 扫一个磁盘目录：浏览器枚举太慢，改由服务端直接扫。
+        # 立刻返回 job id，前端轮询 GET /api/source/scan?job=… 拿进度。
+        if base == "/api/source/scan":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(n).decode("utf-8", "replace")) if n > 0 else {}
+                mode = str(payload.get("mode") or "").strip().lower()
+
+                if mode == "refresh":
+                    # 重扫一个已有的库：路径和库名都取库里记的，**不接受前端传路径** ——
+                    # 否则等于给了个「用任意路径覆盖我任何一个库」的口子。
+                    # 库名不变 → key 不变 → 原地覆盖，不会多出一颗珠子。
+                    rk = str(payload.get("key") or "").strip()
+                    src = get_source(rk)
+                    if not isinstance(src, TreeSource) or src.key != rk:
+                        self._json({"ok": False, "error": "这个库不支持重扫"}, 400)
+                        return
+                    root = getattr(src, "src_path", "") or ""
+                    if not root:
+                        self._json({"ok": False,
+                                    "error": "这个库没记住原始路径（浏览器导入的那种），"
+                                             "用「扫描目录」把同一个文件夹再导一次就能刷新"}, 400)
+                        return
+                    if not os.path.isdir(root):
+                        self._json({"ok": False,
+                                    "error": "原目录已经不在了：%s" % root}, 400)
+                        return
+                    name = getattr(src, "label", "") or os.path.basename(root.rstrip("\\/")) or root
+                else:
+                    root = _scan_norm(payload.get("path"))
+                    if not root:
+                        self._json({"ok": False, "error": "请填一个目录路径"}, 400)
+                        return
+                    if not os.path.isdir(root):
+                        self._json({"ok": False, "error": "这个目录不存在：%s" % root}, 400)
+                        return
+                    # 目录名当库名；盘根（D:\）剥完是「D:」，也够认
+                    name = os.path.basename(root.rstrip("\\/")) or root.rstrip("\\/") or root
+
+                try:
+                    job = start_scan(root, name, mode or "new")
+                except ScanBusy:
+                    self._json({"ok": False, "error": "上一次扫描还没结束"}, 409)
+                    return
+                self._json({"ok": True, "job": job, "path": root, "name": name,
+                            "mode": mode or "new"})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+            return
+
         self._json({"ok": False, "error": "未知接口"}, 404)
 
+    def do_HEAD(self):
+        # 静态文件也走同一道闸：HEAD 不返回内容，但「哪个路径存在」本身也是信息
+        if self._gate():
+            return
+        super().do_HEAD()
+
     def do_GET(self):
+        if self._gate():
+            return
         base = self.path.split("?")[0]
         # 锁的当前状态（前端渲染锁图标要用：有没有设密码、哪些被锁）
         if base == "/api/lock":
@@ -2047,6 +2814,14 @@ class Handler(SimpleHTTPRequestHandler):
         # 可用数据源清单。前端靠它渲染切换器 —— 加新数据源不用改前端代码
         if base == "/api/sources":
             self._json({"sources": list_sources()})
+            return
+
+        # 扫目录的进度。前端每 300ms 问一次，直到 state 变成 done / error。
+        # 带着 job 一起回：并发两次扫描时，前端能认出这单是不是自己发的那次。
+        if base == "/api/source/scan":
+            with SCAN_LOCK:
+                snap = dict(SCAN)
+            self._json(snap)
             return
 
         # 正文搜索：标题只回答「这条会话叫什么」，回答不了「里面说了什么」。
@@ -2130,10 +2905,10 @@ class Handler(SimpleHTTPRequestHandler):
             kids = []
             for s in list_sources():
                 sk = s.get("key")
-                # 没装 WorkBuddy 的机器上这颗永远是空的，而且 get_source
-                # 会回退到 csv —— 于是「WorkBuddy 会话」会拿示例的数字
-                # 冒充会话数，还挂着「已连接」。宁可不显示。
-                if sk == "workbuddy" and not WorkBuddySource.available():
+                # 本机没这个源的数据就别显示这颗珠子：get_source 会回退到
+                # 别的源，于是「WorkBuddy 会话」会拿别人的数字冒充自己，还挂着
+                # 「已连接」。宁可不显示。
+                if not source_available(sk):
                     continue
                 cnt, unit, leaves = 0, "项", 0
                 try:
@@ -2403,7 +3178,8 @@ class Handler(SimpleHTTPRequestHandler):
                     lim = 0
                 # tail=1：取最后一段。实时刷新只看得到「最新」，取头部等于永远看不到新东西。
                 tl = (q.get("tail") or ["0"])[0] in ("1", "true", "yes")
-                tree = load_session(sid, off, lim, tl) if sid else None
+                # 分派：claude: 前缀归 Claude Code 源，其余仍是 WorkBuddy 老路
+                tree = expand_node(sid, off, lim, tl) if sid else None
                 # 锁：会话被锁就当作不存在（404），连「有这个东西」都不透露。
                 # 工作区被锁时，它下面的会话同样查不到 —— 否则知道 sid 就能绕过。
                 if sid:
@@ -2601,7 +3377,7 @@ def focus_existing_page():
                 return True
             cb = ctypes.create_unicode_buffer(256)
             GetClassNameW(hwnd, cb, 256)
-            found.append((hwnd, cb.value.lower()))
+            found.append((hwnd, cb.value.lower(), buf.value))
             return True
 
         EnumWindows(_cb, 0)
@@ -2610,15 +3386,22 @@ def focus_existing_page():
 
         # 纯英文标题「Raindrop Chart」和磁盘上那个同名文件夹一模一样，光靠标题
         # 认人会把资源管理器抬到前面（用户看到「双击图标却弹出文件夹」）。
-        # 只认浏览器类名：认不出就返回 False 老实开新标签 —— 多一个标签，
+        # 只认浏览器类名：认不出就返回 False 老实开新的 —— 多开一个窗口，
         # 好过跳错窗口。
         BROWSER_CLS = ("chrome_widgetwin", "mozilla", "firefox")
-        hwnd = next(
-            (h for h, cls in found if any(k in cls for k in BROWSER_CLS)),
-            None,
-        )
-        if hwnd is None:
+        live = [(h, t) for h, cls, t in found if any(k in cls for k in BROWSER_CLS)]
+        if not live:
             return False
+
+        # 独立应用窗口和普通标签页标题里都有产品名，区别只在后缀：
+        # 普通标签会带一句「 - Microsoft Edge」或「和另外 N 个页面 - … - Microsoft Edge」，
+        # 应用窗口的标题就是页面标题本身。优先抬应用窗口 —— 那才是用户日常用的
+        # 那个；抬成浏览器标签的话，用户会看到一排标签栏，以为独立窗口没生效。
+        SHELL_MARKS = (" - microsoft", " - google chrome", " - brave",
+                       " - vivaldi", " - opera", "和另外")
+        app_win = [h for h, t in live
+                   if not any(k in t.lower() for k in SHELL_MARKS)]
+        hwnd = app_win[0] if app_win else live[0][0]
         SW_RESTORE = 9
         try:
             if user32.IsIconic(hwnd):     # 最小化着就先还原，否则只会任务栏闪一下
@@ -2635,18 +3418,165 @@ def focus_existing_page():
         return False
 
 
+# ------------------------------------------------------------------
+#  独立窗口：把页面开成一个没有地址栏、没有标签栏的应用窗口
+#
+#  ⚠️ 这不是换渲染引擎，性能跟网页版**完全一样**。它只做一件事：
+#     让浏览器别再画自己那层壳（地址栏 / 标签栏 / 书签栏），
+#     于是任务栏里出现一个独立条目，看起来像个应用。
+#     导入几十万文件慢，是磁盘 IO 的事，换窗口一毫秒都不省。
+#
+#  用独立的 --user-data-dir：不跟日常浏览器抢会话，关掉日常浏览器
+#  也不会把这个窗口带走。代价是首次启动多一两秒建 profile。
+# ------------------------------------------------------------------
+def _chromium_exe():
+    """找一个能开 --app 窗口的浏览器。找不到就返回空串（调用方退回普通标签）。"""
+    cands = [
+        r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+        r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+        r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe",
+        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+        r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+    ]
+    for c in cands:
+        p = os.path.expandvars(c)
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
+def _app_profile_dir():
+    """独立 profile 目录。建不出来就返回空串 —— 那也照样能开窗口，
+    只是窗口会挂在日常浏览器进程里，独立感差一点，不该因此失败。"""
+    d = os.path.join(USER, "_appwin")
+    try:
+        os.makedirs(d, exist_ok=True)
+        return d
+    except Exception:
+        return ""
+
+
+def _pin_topmost(pid, wait):
+    """把某个进程的窗口钉在最上层。只在 RD_TOPMOST=1 时走这里。"""
+    time.sleep(wait)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        u = ctypes.WinDLL("user32", use_last_error=True)
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _cb(hwnd, _lp):
+            if not u.IsWindowVisible(hwnd):
+                return True
+            who = wintypes.DWORD()
+            u.GetWindowThreadProcessId(hwnd, ctypes.byref(who))
+            if who.value == pid:
+                found.append(hwnd)
+            return True
+
+        u.EnumWindows(_cb, 0)
+        for h in found:
+            u.SetWindowPos(h, -1, 0, 0, 0, 0, 0x0001 | 0x0002)   # TOPMOST, NOMOVE|NOSIZE
+    except Exception:
+        pass
+
+
+def _work_area_dip():
+    """屏幕可用区（扣掉任务栏和浮动工具栏），换算成 **DIP**，也就是 Chromium
+    的 --window-size 认的那个单位。
+
+    为什么不能直接写死 1320×860：
+    1366×768 的笔记本上，860 已经比屏幕还高，窗口底部直接被劈掉；
+    2560×1600 的机器上，1320 只占屏幕 5 成，看着像个小卡片。
+    写死一个数，等于只对「某一台机器」是对的。
+
+    返回 (w, h)；拿不到就返回 (0, 0)，调用方退回原常量。
+    """
+    try:
+        user32 = ctypes.windll.user32
+        # 不声明 DPI 感知的话，GetSystemMetrics 返回的是「被系统缩放过的假尺寸」，
+        # 在 150% 的机器上会拿到 1707 而不是 2560，再除一次缩放就错两遍。
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)   # PROCESS_SYSTEM_DPI_AWARE
+        except Exception:
+            try:
+                user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
+        class _RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+        r = _RECT()
+        # SPI_GETWORKAREA = 0x0030
+        if not user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0):
+            return (0, 0)
+        scale = 1.0
+        try:
+            scale = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100.0
+        except Exception:
+            try:
+                scale = ctypes.windll.user32.GetDpiForSystem() / 96.0
+            except Exception:
+                scale = 1.0
+        if not scale or scale <= 0:
+            scale = 1.0
+        return (int((r.right - r.left) / scale), int((r.bottom - r.top) / scale))
+    except Exception:
+        return (0, 0)
+
+
+def open_app_window(url):
+    """开独立应用窗口。成功返回 True，没有 Chromium 或启动失败返回 False。"""
+    exe = _chromium_exe()
+    if not exe:
+        return False
+    # 窗口按屏幕可用区收放：设计基准 1320×860 仍是上限，
+    # 大屏不铺满（占 8 成左右刚好），小屏不溢出。
+    ww, wh = 1320, 860
+    aw, ah = _work_area_dip()
+    if aw > 0 and ah > 0:
+        ww = max(980, min(ww, int(aw * 0.80)))
+        wh = max(620, min(wh, int(ah * 0.84)))
+        if aw < 980:
+            ww = aw            # 屏幕本身就比下限窄，别再撑出屏幕
+        if ah < 620:
+            wh = ah
+    args = [exe, "--app=" + url, "--new-window", "--window-size=%d,%d" % (ww, wh),
+            "--no-first-run", "--no-default-browser-check"]
+    prof = _app_profile_dir()
+    if prof:
+        args.append("--user-data-dir=" + prof)
+    try:
+        proc = subprocess.Popen(args, close_fds=True)
+    except Exception:
+        return False
+    if os.environ.get("RD_TOPMOST", "") in ("1", "true", "yes"):
+        threading.Thread(target=_pin_topmost, args=(proc.pid, 2.5), daemon=True).start()
+    return True
+
+
 def open_page(url, reuse=True):
-    """开页面。已经有开着的就抬到前面，没有再开新标签。
+    """开页面。已经有开着的就抬到前面，没有再开新窗口。
 
     reuse=False 用于「服务刚起来」那一刻：此时同一个 URL 上可能挂着上一轮留下的
     旧标签，那是断线状态（或者显示着旧数据）。把它抬上来等于给用户看一个假的页面，
     还不如老实地开一个新的。只有确认「服务本来就在跑」时才复用。
 
-    返回 True 表示开了新标签，False 表示复用/聚焦了已有的。
+    RD_WINDOW=tab 退回普通浏览器标签；默认走独立应用窗口，找不到 Chromium 才退。
+
+    返回 True 表示开了新窗口，False 表示复用/聚焦了已有的。
     """
     if reuse and focus_existing_page():
-        print("  页面已经开着，已把它抬到前面（没有再开新标签）")
+        print("  页面已经开着，已把它抬到前面（没有再开新的）")
         return False
+    want_app = os.environ.get("RD_WINDOW", "app").strip().lower() != "tab"
+    if want_app and open_app_window(url):
+        print("  已开成独立窗口（没有地址栏和标签栏）")
+        return True
     webbrowser.open(url)
     return True
 

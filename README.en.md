@@ -31,7 +31,7 @@ instead of digging through folders.
 
 ![Drill in](docs/img/02-drill.png)
 
-Drop in a CSV and it shows up. If you use Buddy, its conversation history reads in directly.
+Drop in a CSV or a JSON and it shows up. If you use Buddy or Claude Code, their conversation history reads in directly.
 
 ![Third level](docs/img/03-into.png)
 
@@ -80,11 +80,15 @@ on the first screen).
 
 | What you want to see | What to do |
 |---|---|
-| Your own CSVs / folders | Drop them in `data/sources/`, refresh the page |
-| Your own conversation history | Already there if you use Buddy |
+| Your own CSV / JSON / folders | Drop them in `data/sources/`, or use "New source" in the right-click menu |
+| A whole drive / 100k+ files | Right-click → "New source · Scan a folder", type `D://` — the server walks it, no browser enumeration |
+| Your own conversation history | Already there if you use Buddy or Claude Code |
+| History lives elsewhere | Point `RD_CLAUDE_DIR` at that directory before starting |
 | Just a look around | Nothing — a sample comes with it |
 
 The first time you open it, it's empty (a sample, nothing else). That's expected.
+
+It opens as a **standalone window with no address bar or tab strip** (its own taskbar entry). Set `RD_WINDOW=tab` before starting to go back to a normal browser tab, or `RD_TOPMOST=1` to keep it above other windows.
 
 ### Step 3 · Let Buddy read it too — one more double-click
 

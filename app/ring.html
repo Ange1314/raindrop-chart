@@ -14,6 +14,18 @@
      六套主题 = :root(蓝) + 五个 html[data-theme="..."] 覆盖块（绿/米白/粉/紫/黑）。
      任何组件都不许再写死色值，否则换主题时会剩下几块没跟着变。 */
   :root{
+    /* ---- 界面密度系数（2026-11-13）----
+       全站尺寸都在这里被一个数统一缩放。**为什么需要它**：
+       所有字号 / 行高 / 图标原本写死 CSS 像素，而 CSS 像素的物理大小跟着
+       系统缩放走（150% 时 1px = 1.5 物理像素，125% 时 1.25）。
+       于是同一套界面在 150% 的机器上偏大、在 100% 的机器上偏小，
+       设计稿只对得上恰好 125% 那一档 —— 用户实测也是「125% 小正合适」。
+       所以把 --ui 的定义反过来：锚定 125% 那一档的物理大小，
+       dpr 越高就把界面收得越小（见 applyUi()），各机器观感才一致。
+       只作用于「密度」：字号、行高、图标、行内留白。
+       布局宽度、浮层定位、画布半径一律不乘它 —— 那些跟着容器走。 */
+    --ui:1;
+
     /* ---- 六套主题的「圆面色 / 圆描边」 ----
        右键菜单那六个色块要用的是「各套主题里雨滴长什么样」，可它必须同时
        显示六种不同颜色 —— 直接读 --cv-dot 只能读到当前主题那一套。
@@ -50,6 +62,14 @@
     --panel:rgba(255,255,255,.84);         /* 顶栏控件 */
     --panel-soft:rgba(255,255,255,.72);
     --panel-strong:rgba(255,255,255,.93);  /* 必须挡字的浮层 */
+
+    /* 浮层材质：所有「浮在上面」的弹窗共用这一套（右键 / 二级 / 悬停提示 /
+       搜索建议 / 调参面板 / 实时源面板）。
+       半透明 + 强虚化是一对：光半透明会透出能读的字，光虚化又太实。
+       26px 的模糊把底下的内容糊成色块，看得见「下面有东西」但读不出字。 */
+    --pop-bg:rgba(255,255,255,.60);
+    --pop-brd:rgba(211,217,228,.88);
+    --pop-blur:blur(26px) saturate(165%);
     --panel-solid:#fff;
     --panel-brd:rgba(211,217,228,.95);
     --panel-brd-soft:rgba(211,217,228,.75);
@@ -85,9 +105,16 @@
     /* 背景三团光的颜色。以前整条 background 写死在 body 上，
        每加一套主题就得复制一遍那四行 radial-gradient；抽成变量后
        换主题只改这三个值，body 只写一次。 */
-    --glow1:rgba(60,130,255,.10);
-    --glow2:rgba(120,110,255,.07);
-    --glow3:rgba(40,180,220,.07);
+    /* 三个光斑的取色规则（2026-11-13 定）：
+         ① 主色的**暖邻近**（朝红/黄走 30°）
+         ② 主色的**冷邻近**（朝青/蓝走 30°）
+         ③ 主色的**对比色**（+180°），透明度再压一档，只用来给一角透气
+       以前三团是三个各自独立的颜色，彼此没有关系，混起来既不像主色也不成对；
+       现在三团围着一个主色转，背景才有"同一个东西的远近"这层意思。
+       饱和度统一压到 0.60（对比色 0.45）：光斑是光，不是颜料。 */
+    --glow1:rgba(200,100,250,.13);
+    --glow2:rgba(100,225,250,.09);
+    --glow3:rgba(250,205,137,.06);
 
     /* 浮层圆角：搜索框 / 状态胶囊 / 下拉 / 模式按钮组共用同一个值，
        免得各写各的、并排时能看出不齐。16 已接近这些元素半高，两端接成胶囊。 */
@@ -122,6 +149,11 @@
     --panel:rgba(38,45,58,.70);
     --panel-soft:rgba(38,45,58,.58);
     --panel-strong:rgba(26,32,42,.92);
+    /* 深色下同样的透明度会显得更「空」，所以底色压回一点、饱和降一点：
+       深底上过饱和的模糊会泛出明显的彩色光斑。 */
+    --pop-bg:rgba(30,37,48,.68);
+    --pop-brd:rgba(255,255,255,.14);
+    --pop-blur:blur(26px) saturate(145%);
     --panel-solid:#161B24;
     --panel-brd:rgba(255,255,255,.15);
     --panel-brd-soft:rgba(255,255,255,.10);
@@ -151,9 +183,9 @@
     --cv-hl:rgba(255,255,255,.10);
     --rgb-accent:79,184,194;
 
-    --glow1:rgba(43,92,255,.15);
-    --glow2:rgba(122,60,255,.12);
-    --glow3:rgba(0,194,209,.10);
+    --glow1:rgba(100,250,175,.14);
+    --glow2:rgba(100,162,250,.11);
+    --glow3:rgba(250,147,137,.06);
   }
 
   /* ================= 其余四套主题 =================
@@ -198,9 +230,9 @@
     --cv-hl:rgba(255,255,255,.34);
     --rgb-accent:18,133,90;
 
-    --glow1:rgba(30,170,110,.11);
-    --glow2:rgba(120,200,150,.07);
-    --glow3:rgba(40,180,190,.06);
+    --glow1:rgba(125,250,100,.13);
+    --glow2:rgba(100,225,250,.09);
+    --glow3:rgba(250,137,179,.06);
   }
 
   /* ---- 米白：最初那版纸色青（其余主题都是后来从蓝改出来的） ---- */
@@ -238,9 +270,9 @@
     --cv-hl:rgba(255,255,255,.34);
     --rgb-accent:46,125,138;
 
-    --glow1:rgba(60,150,160,.09);
-    --glow2:rgba(205,180,140,.10);
-    --glow3:rgba(90,140,120,.06);
+    --glow1:rgba(250,200,100,.13);
+    --glow2:rgba(100,162,250,.10);
+    --glow3:rgba(250,152,137,.06);
   }
 
   /* ---- 粉：樱 ---- */
@@ -278,9 +310,9 @@
     --cv-hl:rgba(255,255,255,.34);
     --rgb-accent:207,58,114;
 
-    --glow1:rgba(240,90,140,.10);
-    --glow2:rgba(180,120,255,.07);
-    --glow3:rgba(255,170,120,.07);
+    --glow1:rgba(250,137,100,.13);
+    --glow2:rgba(250,100,250,.09);
+    --glow3:rgba(137,250,207,.06);
   }
 
   /* ---- 紫：藕 ---- */
@@ -318,9 +350,9 @@
     --cv-hl:rgba(255,255,255,.34);
     --rgb-accent:108,75,209;
 
-    --glow1:rgba(110,80,255,.11);
-    --glow2:rgba(180,110,255,.07);
-    --glow3:rgba(60,140,255,.06);
+    --glow1:rgba(250,100,250,.13);
+    --glow2:rgba(100,150,250,.09);
+    --glow3:rgba(222,250,137,.06);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
@@ -371,7 +403,7 @@
        用 999 而不是写死 17 —— 以后改高度也不用回来改这里。 */
     border:1px solid var(--panel-brd);border-radius:999px;
     box-shadow:var(--hl);
-    font-size:12px;color:var(--muted);user-select:none;
+    font-size:calc(12px * var(--ui));color:var(--muted);user-select:none;
   }
   #addr.on{display:flex}
   #addr.focus{border-color:var(--accent);background:var(--panel-solid);user-select:text}
@@ -385,7 +417,7 @@
   }
   #crumb{
     flex:1 1 auto;min-width:0;
-    font-size:12px;color:var(--muted);
+    font-size:calc(12px * var(--ui));color:var(--muted);
     display:flex;align-items:center;gap:2px;
     overflow:hidden;white-space:nowrap;cursor:text;
   }
@@ -411,27 +443,30 @@
     position:absolute;left:0;top:0;
     width:14px;height:14px;border-radius:50%;
     align-items:center;justify-content:center;
-    font-size:14px;line-height:1;color:var(--ghost2);cursor:pointer;
+    font-size:calc(14px * var(--ui));line-height:1;color:var(--ghost2);cursor:pointer;
   }
   #addr.focus #qx{display:flex}
   #addr.focus .mag{display:none}
   #qx:hover{background:var(--press);color:var(--ink)}
   #qlist{
-    position:absolute;top:34px;left:0;right:0;max-height:320px;overflow:auto;
-    display:none;background:var(--panel-solid);border:1px solid var(--panel-brd);border-radius:var(--r-panel);
+    /* fixed + 由 JS 定左右宽度（qPlace）：搬出 #addr 之后没法再用 left:0;right:0 撑满 */
+    position:fixed;left:0;top:0;max-height:320px;overflow:auto;
+    display:none;
+    background:var(--pop-bg);border:1px solid var(--pop-brd);border-radius:var(--r-panel);
+    backdrop-filter:var(--pop-blur);-webkit-backdrop-filter:var(--pop-blur);
     box-shadow:var(--shadow-sm);z-index:32;
   }
   #qlist.on{display:block}
-  #qlist div{padding:7px 11px;font-size:11.5px;cursor:pointer;line-height:1.5;
+  #qlist div{padding:7px 11px;font-size:calc(11.5px * var(--ui));cursor:pointer;line-height:1.5;
     border-bottom:1px solid var(--rule);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #qlist div:last-child{border-bottom:none}
   #qlist div:hover{background:var(--hover-soft)}
   #qlist u{text-decoration:none;color:var(--accent-ink)}
-  #qlist s{text-decoration:none;color:var(--ghost);font-size:10.5px;margin-left:6px}
-  #qlist em{font-style:normal;color:var(--muted);padding:8px 11px;font-size:11px;display:block}
+  #qlist s{text-decoration:none;color:var(--ghost);font-size:calc(10.5px * var(--ui));margin-left:6px}
+  #qlist em{font-style:normal;color:var(--muted);padding:8px 11px;font-size:calc(11px * var(--ui));display:block}
   /* 正文命中的上下文片段：最多两行，超出打点 —— 搜索框只有一列窄条，
      片段要是铺开三行，一次就只能看见一条结果，反而更难挑。 */
-  #qlist p.qsnip{margin:2px 0 0;padding:0;font-size:10.5px;color:var(--ghost);
+  #qlist p.qsnip{margin:2px 0 0;padding:0;font-size:calc(10.5px * var(--ui));color:var(--ghost);
     line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;
     -webkit-box-orient:vertical;overflow:hidden}
   #qlist .mono{font-family:ui-monospace,Consolas,monospace}
@@ -442,12 +477,13 @@
     /* 同心：外 16 − 边框 1 − 内边距 5 = 内 10，和 #ctx 完全一致 */
     --ctx-r:var(--r-panel);
     --ctx-pad:5px;
-    background:var(--panel-strong);backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
-    border:1px solid var(--panel-brd);
+    background:var(--pop-bg);
+    backdrop-filter:var(--pop-blur);-webkit-backdrop-filter:var(--pop-blur);
+    border:1px solid var(--pop-brd);
     border-radius:var(--ctx-r);padding:var(--ctx-pad);
     box-shadow:var(--hl),var(--shadow);
     color:var(--ink);
-    font-size:11.5px;line-height:1.5;white-space:nowrap;
+    font-size:calc(11.5px * var(--ui));line-height:1.5;white-space:nowrap;
     /* 给个下限：只有一行的卡片不会窄成一条，悬停移动时宽度不会一路缩窄 */
     min-width:128px;max-width:300px;
     transition:opacity .12s ease;
@@ -458,25 +494,25 @@
   }
   /* 标题行：比菜单项略大一号，但不加粗到抢眼 */
   #tip .th{
-    font-weight:500;font-size:12px;padding:2px 12px 0;
+    font-weight:500;font-size:calc(12px * var(--ui));padding:2px 12px 0;
     overflow:hidden;text-overflow:ellipsis;max-width:264px;
   }
   /* 副标题缺席时（末端节点没有量可说），标题自己撑满，补一点下边距 */
   #tip .th:last-child{padding-bottom:4px}
   /* 副标题行：跟菜单项的 <s> 同级灰度，读起来是“注释”而不是“内容” */
   #tip .ts{
-    color:var(--muted);font-size:10.5px;padding:0 12px 3px;
+    color:var(--muted);font-size:calc(10.5px * var(--ui));padding:0 12px 3px;
     overflow:hidden;text-overflow:ellipsis;max-width:264px;
   }
   /* 前三个会话：沿用菜单「左边名字 / 右边数字」的行式，只去掉悬停与手型 */
   #tip .tr{
     display:flex;align-items:center;gap:8px;
-    padding:4px 12px;font-size:11px;
+    padding:4px 12px;font-size:calc(11px * var(--ui));
     border-radius:calc(var(--ctx-r) - var(--ctx-pad) - 1px);
   }
   #tip .tr i{
     font-style:normal;width:9px;flex:0 0 auto;text-align:right;
-    color:var(--ghost);font-size:10px;
+    color:var(--ghost);font-size:calc(10px * var(--ui));
   }
   #tip .tr em{
     font-style:normal;flex:1 1 auto;min-width:0;max-width:196px;
@@ -484,47 +520,34 @@
   }
   #tip .tr s{
     text-decoration:none;flex:0 0 auto;
-    color:var(--ghost);font-size:10.5px;
+    color:var(--ghost);font-size:calc(10.5px * var(--ui));
   }
   /* ---- 右键菜单 ----
-     #ctx2 是它的二级菜单（子项浮层）。两者共用同一套材质、内边距与圆角，
-     只有位置和 z-index 不同：二级必须压在父菜单之上，否则会被父菜单的
-     阴影糊住一条边。 */
-  #ctx,#ctx2{
+     2026-11-13：二级菜单（#ctx2）连同一整套子项逻辑一起删了 —— 主菜单早就是
+     平铺的，那层浮层没有入口。这里只留一层。 */
+  #ctx{
     position:fixed;z-index:60;display:none;min-width:176px;
-    background:var(--panel-strong);backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
-    border:1px solid var(--panel-brd);
+    background:var(--pop-bg);
+    backdrop-filter:var(--pop-blur);-webkit-backdrop-filter:var(--pop-blur);
+    border:1px solid var(--pop-brd);
     /* 同心：外 16 − 边框 1 − 内边距 5 = 内 10 */
     --ctx-r:var(--r-panel);
     --ctx-pad:5px;
     border-radius:var(--ctx-r);padding:var(--ctx-pad);
     box-shadow:var(--hl),var(--shadow);
-    font-size:11.5px;color:var(--ink);user-select:none;
+    font-size:calc(11.5px * var(--ui));color:var(--ink);user-select:none;
   }
   #ctx.on{display:block}
-  #ctx2{z-index:61}
-  #ctx2.on{display:block}
-  #ctx i,#ctx2 i{
+  #ctx i{
     display:flex;align-items:center;justify-content:space-between;gap:18px;
     padding:7px 12px;white-space:nowrap;
     border-radius:calc(var(--ctx-r) - var(--ctx-pad) - 1px);
     font-style:normal;cursor:pointer;transition:background .12s;
   }
-  #ctx i:hover,#ctx2 i:hover{background:var(--hover)}
-  #ctx i.off,#ctx2 i.off{color:var(--ghost);cursor:default}
-  #ctx i.off:hover,#ctx2 i.off:hover{background:transparent}
-  #ctx i s,#ctx2 i s{text-decoration:none;color:var(--ghost);font-size:10.5px;font-weight:400}
-  /* 有二级菜单的项：右端一个细箭头，和系统菜单同一个位置、同一个方向。
-     用边框画（而不是字符 ›），字号变了也不会跟着变粗细。 */
-  #ctx i.sub::after{
-    content:'';flex:0 0 auto;
-    width:5px;height:5px;margin-left:2px;
-    border-right:1.4px solid var(--ghost2);
-    border-bottom:1.4px solid var(--ghost2);
-    transform:rotate(-45deg);
-  }
-  /* 二级展开时父项保持高亮，指出「这一层是从哪儿来的」 */
-  #ctx i.sub.open{background:var(--hover)}
+  #ctx i:hover{background:var(--hover)}
+  #ctx i.off{color:var(--ghost);cursor:default}
+  #ctx i.off:hover{background:transparent}
+  #ctx i s{text-decoration:none;color:var(--ghost);font-size:calc(10.5px * var(--ui));font-weight:400}
   #ctx i em{
     font-style:normal;width:6px;height:6px;border-radius:50%;
     background:var(--accent);flex:0 0 auto;
@@ -542,7 +565,7 @@
     display:flex;align-items:center;justify-content:space-between;
     gap:12px;padding:5px 12px 6px;
   }
-  #ctx .cxrow>span{color:var(--ink);font-size:11.5px}
+  #ctx .cxrow>span{color:var(--ink);font-size:calc(11.5px * var(--ui))}
   #ctx .sww{display:flex;align-items:center;gap:10px;padding:2px 5px}
   /* 色块 = 该主题里的一颗雨滴：面用 --cv-dot、边用 --cv-dot-brd，
      形状取圆角矩形，好和上下那些文字菜单项区分开。
@@ -581,17 +604,18 @@
     --ctx-r:var(--r-panel);
     --ctx-pad:5px;
     width:272px;padding:var(--ctx-pad);
-    background:var(--panel-strong);backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass);
-    border:1px solid var(--panel-brd);
+    background:var(--pop-bg);
+    backdrop-filter:var(--pop-blur);-webkit-backdrop-filter:var(--pop-blur);
+    border:1px solid var(--pop-brd);
     border-radius:var(--ctx-r);
     box-shadow:var(--hl),var(--shadow);
-    font-size:11.5px;color:var(--ink);user-select:none;
+    font-size:calc(11.5px * var(--ui));color:var(--ink);user-select:none;
   }
   #tune.on{display:block}
   #tune .tth{
     display:flex;align-items:center;justify-content:space-between;gap:10px;
     /* 上下 6/6 对称：原来 5/7 让标题和 × 都偏上，视觉重心飘 */
-    font-weight:500;font-size:12px;padding:6px 12px;
+    font-weight:500;font-size:calc(12px * var(--ui));padding:6px 12px;
     border-bottom:1px solid var(--panel-brd-soft);margin-bottom:4px;
     cursor:move;                     /* 表头是拖动把手，光标要说明这件事 */
   }
@@ -599,7 +623,7 @@
   #tune .tth b{
     display:inline-flex;align-items:center;justify-content:center;
     width:24px;height:24px;border-radius:7px;
-    font-weight:400;font-size:15px;line-height:1;color:var(--ghost2);
+    font-weight:400;font-size:calc(15px * var(--ui));line-height:1;color:var(--ghost2);
     cursor:pointer;transition:background .14s,color .14s;
   }
   #tune .tth b:hover{color:var(--ink);background:var(--press)}
@@ -609,8 +633,8 @@
     display:grid;grid-template-columns:40px 1fr 46px;
     align-items:center;gap:10px;padding:6px 12px;
   }
-  #tune .tr label{color:var(--muted);font-size:11px}
-  #tune .tr b{font-weight:500;text-align:right;font-variant-numeric:tabular-nums;font-size:11px}
+  #tune .tr label{color:var(--muted);font-size:calc(11px * var(--ui))}
+  #tune .tr b{font-weight:500;text-align:right;font-variant-numeric:tabular-nums;font-size:calc(11px * var(--ui))}
   #tune input[type=range]{
     -webkit-appearance:none;appearance:none;width:100%;height:3px;
     border-radius:2px;background:var(--track);outline:none;
@@ -635,7 +659,7 @@
   #tune .tfoot b{
     display:inline-flex;align-items:center;justify-content:center;
     height:26px;padding:0 12px;border-radius:8px;
-    font-weight:500;font-size:11px;color:var(--muted);cursor:pointer;
+    font-weight:500;font-size:calc(11px * var(--ui));color:var(--muted);cursor:pointer;
     /* 次要也给它一个形体：常驻一层很淡的主色底。
        全透明的话，左边轻得像个标签、右边是个实心块，两端重量对不上。 */
     background:var(--hover-soft);
@@ -671,7 +695,7 @@
   #modes.on{display:flex}
   #modes b{
     position:relative;z-index:1;
-    font-weight:500;font-size:11px;color:var(--muted);cursor:pointer;
+    font-weight:500;font-size:calc(11px * var(--ui));color:var(--muted);cursor:pointer;
     padding:4px 10px;border-radius:calc(var(--md-r) - var(--md-pad) - 1px);
     transition:color .22s;
   }
@@ -701,7 +725,7 @@
        不写这一条，胶囊在树图模式下会被整块盖住（雨图下靠 DOM 顺序反而看得见）。 */
     position:fixed;top:20px;left:24px;z-index:30;
     display:none;align-items:center;gap:8px;
-    font-size:11px;color:var(--muted);
+    font-size:calc(11px * var(--ui));color:var(--muted);
     background:var(--panel-soft);backdrop-filter:var(--glass-sm);-webkit-backdrop-filter:var(--glass-sm);
     border:1px solid var(--panel-brd);
     box-shadow:var(--hl);
@@ -726,6 +750,51 @@
   }
   #live b{font-weight:500;color:var(--ink)}
   #live s{text-decoration:none;color:var(--hair)}
+
+  /* ---- 左上角「实时」：悬停向下展开，列出每个实时源 ----
+     只列实时源（WorkBuddy / Claude Code 这种程序自己在写的）。
+     导入的库不进来 —— 它们不会自己变，挂在这儿等于承诺一件做不到的事。
+     只有一个实时源时不展开（没有 multi 类，面板永远不出现）：
+     没有第二个可对比，展开只是让人多点一次。 */
+  #live.multi::after{
+    content:'';width:4.5px;height:4.5px;margin-left:1px;
+    border-right:1.2px solid var(--ghost);border-bottom:1.2px solid var(--ghost);
+    transform:translateY(-2px) rotate(45deg);
+    transition:transform .18s ease;
+  }
+  #live.multi:hover::after{transform:translateY(1px) rotate(225deg)}
+  /* 面板是 body 的直属子元素，**不能**放进 #live 里。
+     规范：元素一旦有 backdrop-filter，就成为子元素的「backdrop root」，
+     子元素的 backdrop-filter 只能取样到这个 root，看不到页面内容。
+     放在 #live 里实测的结果：半透明有了，虚化完全没有，底下的字清清楚楚。
+     （#qlist 和 #addr 是同一个道理，所以它也搬出来了。）
+     代价是 CSS 的 :hover 传不到 body 子元素，展开收起改由 JS 管。 */
+  #lvpop{
+    position:fixed;z-index:30;left:0;top:0;
+    padding-top:6px;            /* 视觉上的缝归它，鼠标经过不算离开 */
+    opacity:0;visibility:hidden;transform:translateY(-4px);pointer-events:none;
+    transition:opacity .16s ease,transform .16s ease,visibility .16s;
+  }
+  #lvpop.on{opacity:1;visibility:visible;transform:none;pointer-events:auto}
+  .lvcard{
+    min-width:216px;padding:5px;
+    /* 和右键菜单用同一套浮层材质。模糊够强时，底下透上来的是色块不是字，
+       所以不需要靠「不透明」来保证可读性。 */
+    background:var(--pop-bg);
+    backdrop-filter:var(--pop-blur);-webkit-backdrop-filter:var(--pop-blur);
+    border:1px solid var(--panel-brd);border-radius:14px;
+    box-shadow:var(--shadow);
+  }
+  .lvrow{
+    display:flex;align-items:center;gap:8px;
+    padding:6px 9px;border-radius:9px;font-weight:400;cursor:pointer;
+  }
+  /* 底色已经很实了，hover 再压一层同色看不出变化 —— 用主题色的淡底，六个主题都成立 */
+  .lvrow:hover{background:rgba(var(--rgb-accent),.10)}
+  .lvrow .ld{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+  .lvrow .ld.off{background:var(--ghost)}
+  .lvrow .ln{flex:1;white-space:nowrap;font-size:calc(11px * var(--ui));color:var(--ink)}
+  .lvrow em{font-style:normal;font-size:calc(10.5px * var(--ui));color:var(--muted)}
   /* ---- 双树对照视图 ----
      版式取手抄本 / 早期印本（Gutenberg 圣经那一路，Tschichold 归纳成 2:3:4:6）的规矩：
      版心居中、左右留白完全相等，上下留白不等且下边距最宽。
@@ -738,7 +807,7 @@
     --tw-top:clamp(68px, 7vh, 96px);
     padding:var(--tw-top) 22px calc(var(--tw-top) * var(--phi));gap:14px;
     justify-content:center;          /* 超宽屏时两列居中，两侧留白自动等分 */
-    font-size:12px;color:var(--ink);
+    font-size:calc(12px * var(--ui));color:var(--ink);
   }
   #treewrap.on{display:flex}
 
@@ -811,18 +880,22 @@
     background:var(--surface-hi);
     white-space:nowrap;                 /* 表头也不许换行，否则两列高度不一致 */
   }
-  .thead b{font-weight:500;font-size:12px;color:var(--ink);margin-right:auto}
-  .thead span{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .thead b{font-weight:500;font-size:calc(12px * var(--ui));color:var(--ink);margin-right:auto}
+  .thead span{font-size:calc(11px * var(--ui));color:var(--muted);font-variant-numeric:tabular-nums}
   .tbody{flex:1;overflow:auto;padding:7px 5px 24px}
   .trow{
-    display:flex;align-items:center;gap:5px;
-    padding:3px 8px;border-radius:5px;cursor:default;
-    /* 行高必须写死 px：原来 1.55 是乘各自字号，
-       左列等宽 11px、右列 12px，每行差 1.6px，18 行就错位近 30px */
-    line-height:18px;min-height:24px;
-    white-space:nowrap;
+    display:flex;align-items:center;gap:calc(5px * var(--ui));
+    padding:calc(3px * var(--ui)) calc(8px * var(--ui));border-radius:5px;cursor:default;
+    /* 行高必须是 px 而不是倍数：1.55 是乘各自字号，左列 11px、右列 12px，
+       每行差 1.6px，18 行就错位近 30px。现在乘 --ui，两列仍是同一个数。
+       ⚠️ 2026-11-19：从 min-height 改成**定高**。min-height 只是下限，
+       内容一旦比行高就往上长 —— 左列是等宽字路径 + 行尾两枚图标，
+       实测比右列高 3~5px/行，十几行下来两栏就错开半屏（用户报「行高、间距不同」）。
+       定高 + overflow:hidden 之后，行高只由 --ui 决定，与内容无关。 */
+    line-height:calc(18px * var(--ui));height:calc(24px * var(--ui));
+    overflow:hidden;white-space:nowrap;
   }
-  .trow > span{line-height:18px}
+  .trow > span{line-height:calc(18px * var(--ui))}
   .trow.hit{cursor:pointer}
   .trow.hit:hover{background:var(--hover-soft)}
   /* 另一列被联动的同一行：常亮，不依赖鼠标是否停在上面 */
@@ -830,10 +903,12 @@
   .trow.link .tn{color:var(--accent-ink)}
   .trow .tw{
     flex:0 0 11px;width:11px;text-align:center;
-    font-size:8px;color:var(--ghost);transition:.15s;
+    font-size:calc(8px * var(--ui));color:var(--ghost);transition:.15s;
   }
   .trow .tn{overflow:hidden;text-overflow:ellipsis;max-width:100%}
-  .trow .tm{margin-left:auto;padding-left:10px;color:var(--ghost);font-size:10.5px;flex:0 0 auto}
+  .trow .tm{margin-left:auto;padding-left:10px;color:var(--ghost);font-size:calc(10.5px * var(--ui));flex:0 0 auto}
+  /* 空数字格只负责把后面的按钮推到右边缘，自己不占宽 */
+  .trow .tm:empty{padding-left:0}
   .trow .tg{color:var(--accent)}
   .trow .tq{color:var(--ghost2)}
   /* 右列行尾的两列按钮：眼睛（这一层显不显示）+ ×（断开这个库）。
@@ -843,15 +918,46 @@
     flex:0 0 auto;display:flex;align-items:center;gap:2px;margin-left:2px;
   }
   /* 两个槽位宽度写死：没有 × 的行留一个空槽，
-     否则「眼睛」会滑到叉的位置上，一列图标变成两种对齐。 */
-  .trow .tacts b.tgap{width:18px;height:18px;visibility:hidden}
+     否则「眼睛」会滑到叉的位置上，一列图标变成两种对齐。
+     ⚠️ 这里必须跟着 --ui 缩放：行高是 24px*ui，槽位硬写 18px 时
+     在 ui<1 的窗口里比真图标还大，会反过来把行撑高（两栏一边高一边矮）。 */
+  .trow .tacts b.tgap{width:calc(18px * var(--ui));height:calc(18px * var(--ui));visibility:hidden}
+  /* 正在重读的那一行：一道从左扫到右的浅光带 + ↻ 自己转。
+     为什么用 CSS 动画而不是每轮 pollScan 重画：drawTrees 是整块 innerHTML
+     重建，300ms 重建一次会把动画从头打断，看起来一顿一顿的。
+     所以重读期间**只改文字、不重画**（见 pollScan 里的 refreshing 分支）。 */
+  .trow.refreshing{position:relative;overflow:hidden}
+  .trow.refreshing::after{
+    content:'';position:absolute;inset:0;pointer-events:none;border-radius:4px;
+    background:linear-gradient(90deg,transparent 12%,var(--accent) 50%,transparent 88%);
+    opacity:.13;
+    animation:rdSweep 1.15s linear infinite;
+  }
+  @keyframes rdSweep{
+    from{transform:translateX(-100%)}
+    to{transform:translateX(100%)}
+  }
+  .trow.refreshing .trel svg{animation:rdSpin .9s linear infinite}
+  @keyframes rdSpin{to{transform:rotate(360deg)}}
+  /* 系统里关了动效就别扫了，留个静态底色也能看出在忙 */
+  @media (prefers-reduced-motion: reduce){
+    .trow.refreshing::after{animation:none;opacity:.10}
+    .trow.refreshing .trel svg{animation:none}
+  }
+
+  /* 行尾第一格：实时源 = 连接点（实心连着、空环断开），导入库 = ↻ 重读磁盘。
+     同一个位置放两种控件 —— 一个源要么是实时、要么是导入，不会同时是两者，
+     分成两列只会让每行都留一个空格子。 */
+  .trow .tacts b.tlink{color:var(--accent)}
+  .trow .tacts b.tlink.off{color:var(--ghost2);opacity:.65}
+  .trow .tacts b.tlink.off:hover{color:var(--ink);opacity:1}
   .trow .tacts b{
     display:inline-flex;align-items:center;justify-content:center;
-    width:18px;height:18px;border-radius:5px;flex:0 0 auto;
+    width:calc(18px * var(--ui));height:calc(18px * var(--ui));border-radius:5px;flex:0 0 auto;
     color:var(--ghost2);cursor:pointer;transition:color .14s,background .14s;
   }
   .trow .tacts b:hover{color:var(--ink);background:var(--press)}
-  .trow .tacts b svg{width:12px;height:12px;display:block}
+  .trow .tacts b svg{width:calc(12px * var(--ui));height:calc(12px * var(--ui));display:block}
   /* 隐藏的层级：整行退到背景里，但还认得出来 —— 它只是不画在雨图里，没有消失 */
   .trow.hid .tn{color:var(--ghost2);text-decoration:line-through}
   .trow.hid .tm{color:var(--hair)}
@@ -861,7 +967,7 @@
   .trow.sel .tn{color:var(--accent-ink)}
   /* 二次确认：× 就地换成「删除 / 取消」，不弹框 */
   .trow .tacts b.tdel.on{color:#c0442f;background:rgba(192,68,47,.10)}
-  .trow .tacts b.tcancel{width:auto;padding:0 5px;font-size:10.5px}
+  .trow .tacts b.tcancel{width:auto;padding:0 5px;font-size:calc(10.5px * var(--ui))}
   /* 锁：未锁 = 和眼睛一样灰（线框）；已锁 = 红色实心。
      同一个位置只表达一件事，两种状态不许共用符号。 */
   .trow .tacts b.tlk:hover{color:#c0442f;background:rgba(192,68,47,.10)}
@@ -877,18 +983,18 @@
     width:268px;background:var(--panel);border:1px solid var(--hair);
     border-radius:12px;padding:16px 16px 12px;box-shadow:0 12px 40px rgba(0,0,0,.18);
   }
-  .lockcard .lh{font-size:12.5px;color:var(--ink);margin-bottom:11px;line-height:1.5}
+  .lockcard .lh{font-size:calc(12.5px * var(--ui));color:var(--ink);margin-bottom:11px;line-height:1.5}
   .lockcard .lh em{font-style:normal;color:var(--muted)}
   .lockcard input{
     width:100%;box-sizing:border-box;height:31px;padding:0 9px;margin-bottom:8px;
     border:1px solid var(--hair);border-radius:7px;background:var(--bg);
-    font-size:12.5px;color:var(--ink);outline:none;
+    font-size:calc(12.5px * var(--ui));color:var(--ink);outline:none;
   }
   .lockcard input:focus{border-color:var(--accent)}
-  .lockcard .lerr{min-height:15px;font-size:11px;color:#c0442f;margin-bottom:4px}
+  .lockcard .lerr{min-height:15px;font-size:calc(11px * var(--ui));color:#c0442f;margin-bottom:4px}
   .lockcard .lf{display:flex;justify-content:flex-end;gap:8px}
   .lockcard .lf b{
-    padding:5px 13px;border-radius:7px;font-size:12px;cursor:pointer;
+    padding:5px 13px;border-radius:7px;font-size:calc(12px * var(--ui));cursor:pointer;
     color:var(--muted);border:1px solid transparent;
   }
   .lockcard .lf b:hover{background:var(--press);color:var(--ink)}
@@ -896,11 +1002,11 @@
   .lockcard .lf b[data-lk="ok"]:hover{background:var(--accent-ink);color:#fff}
   .lockcard .lf b.busy{opacity:.55;pointer-events:none}
   /* 忘记密码在左下角：它是「退出这条路」，不该和确认按钮挤在一起 */
-  .lockcard .lf b.lforgot{margin-right:auto;color:var(--ghost2);font-size:11px;padding:5px 6px}
+  .lockcard .lf b.lforgot{margin-right:auto;color:var(--ghost2);font-size:calc(11px * var(--ui));padding:5px 6px}
   .lockcard .lf b.lforgot:hover{color:#c0442f;background:transparent}
-  .lockcard .lbody{font-size:12px;line-height:1.65;color:var(--ink2);margin-bottom:8px}
+  .lockcard .lbody{font-size:calc(12px * var(--ui));line-height:1.65;color:var(--ink2);margin-bottom:8px}
   .lockcard .lbody b{color:#c0442f}
-  .lockcard .lnote{font-size:10.5px;line-height:1.6;color:var(--muted);margin-bottom:11px}
+  .lockcard .lnote{font-size:calc(10.5px * var(--ui));line-height:1.6;color:var(--muted);margin-bottom:11px}
   /* 表头那颗锁：纯统计，只在真有锁定时出现。
      不占一行、不插进树里 —— 树是数据，这里只是数字。 */
   .thead .thlock{
@@ -915,7 +1021,7 @@
   .lockcard .lplist{max-height:230px;overflow:auto;margin-bottom:10px}
   .lockcard .lprow{
     display:flex;align-items:center;justify-content:space-between;gap:8px;
-    padding:6px 2px;border-bottom:1px solid var(--hair);font-size:11.5px;color:var(--ink2);
+    padding:6px 2px;border-bottom:1px solid var(--hair);font-size:calc(11.5px * var(--ui));color:var(--ink2);
   }
   .lockcard .lprow:last-child{border-bottom:0}
   .lockcard .lprow i{flex:0 0 auto;display:flex;color:#c0442f}
@@ -923,17 +1029,17 @@
   .lockcard .lprow span{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lockcard .lprow b{
     flex:0 0 auto;padding:3px 9px;border-radius:6px;cursor:pointer;
-    font-size:11px;color:var(--muted);border:1px solid var(--hair);
+    font-size:calc(11px * var(--ui));color:var(--muted);border:1px solid var(--hair);
   }
   .lockcard .lprow b:hover{color:#c0442f;border-color:rgba(192,68,47,.4)}
-  .tmono{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:11px}
-  .tkind{color:var(--hair);font-size:10px}
+  .tmono{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:calc(11px * var(--ui))}
+  .tkind{color:var(--hair);font-size:calc(10px * var(--ui))}
   .hint{
     position:fixed;left:24px;bottom:20px;
-    font-size:11px;color:var(--muted);letter-spacing:.02em;
+    font-size:calc(11px * var(--ui));color:var(--muted);letter-spacing:.02em;
   }
   #ver{
-    position:fixed;right:24px;bottom:18px;font-size:11px;
+    position:fixed;right:24px;bottom:18px;font-size:calc(11px * var(--ui));
     color:var(--ghost2);letter-spacing:.05em;user-select:none;
   }
 </style>
@@ -943,7 +1049,6 @@
 <div id="addr">
   <div id="crumb"></div>
   <input id="q" type="text" placeholder="搜索会话或文件…" autocomplete="off" spellcheck="false">
-  <div id="qlist"></div>
   <span class="ico">
     <svg class="mag" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
       <circle cx="6.8" cy="6.8" r="4.6"/>
@@ -952,9 +1057,10 @@
     <span id="qx" title="全部删除">×</span>
   </span>
 </div>
+<!-- 搜索建议也要在 #addr 外面：同样的 backdrop root 原因 -->
+<div id="qlist"></div>
 <div id="tip"></div>
 <div id="ctx"></div>
-<div id="ctx2"></div>
 <div id="tune"></div>
 <div id="modes"><i class="pill"></i><b data-m="tree">树图</b><b data-m="rain" class="on">雨图</b></div>
 <div id="treewrap">
@@ -968,6 +1074,8 @@
   </div>
 </div>
 <div id="live"><span class="dot"></span><span id="lvtext">连接中…</span></div>
+<!-- 面板必须放在 #live 外面：见 CSS 里 #lvpop 那段注释 -->
+<div id="lvpop"><div class="lvcard" id="lvlist"></div></div>
 <div class="hint" id="hint">点开看圆周 · 按住拖动 · 右键更多</div>
 <div id="ver">雨滴图 v2.7.0</div>
 
@@ -1129,6 +1237,23 @@
   var qEl = document.getElementById('q');
   var qxEl = document.getElementById('qx');
   var qList = document.getElementById('qlist');
+
+  /* 建议列表搬出了 #addr（原因同 #lvpop），所以不能再靠 left:0;right:0 撑满，
+     位置得自己算：跟着搜索框的左边缘与宽度，贴在它下面 4px。 */
+  function qShow(){
+    var r = adBox.getBoundingClientRect();
+    qList.style.left = Math.round(r.left) + 'px';
+    qList.style.top = Math.round(r.bottom + 4) + 'px';
+    qList.style.width = Math.round(r.width) + 'px';
+    qList.className = 'on';
+  }
+  function qHide(){ qList.className = ''; }
+  /* 搬出 #addr 之后就没人替它跟着窗口动了：开着的时候窗口一变，位置会偏。
+     实时源面板同理，一起挂在这一个监听上。 */
+  window.addEventListener('resize', function(){
+    if (qList.className === 'on') qShow();
+    if (lvPop && lvPop.className === 'on') lvPlace();
+  });
   var adFocused = false, qIndex = null, qTimer = null;
   var lvBox = document.getElementById('live');
   var twBox = document.getElementById('treewrap');
@@ -1139,9 +1264,12 @@
   var treeOpen = {};              /* 树展开状态，key = 节点路径 */
   var diskTree = null, libTree = null;
   var lvText = document.getElementById('lvtext');
+  var lvPop = document.getElementById('lvpop');
+  var lvList = document.getElementById('lvlist');
+  var lvStale = false;            /* 上一帧是不是「待连接」，重画面板时要保住这个状态 */
+  var lvSig = '';                 /* 面板内容指纹：一样就不重建，省得 hover 时闪 */
   var hintEl = document.getElementById('hint');   /* 左下那行操作提示，随模式换文案 */
   var ctxEl = document.getElementById('ctx');
-  var ctx2El = document.getElementById('ctx2');   /* 右键菜单的二级浮层 */
   var liveTimer = null;
   /* 右键菜单的状态 */
   var ctxBean = null;          /* 右键点中的那颗珠子，null = 点在空白 */
@@ -1151,21 +1279,134 @@
      换主题只要重跑一次 readTheme，不用去改十几处 rgba。 */
   var TC = {};
   var ctxTree = null;          /* 树图右键命中的那一行：{name, path}，null = 空白 */
+  /* 「这一行在库里是谁」：{key: 库, rel: 库内相对路径, isDir}。
+     扫描出来的树里，文件和文件夹都没有绝对路径，靠这两个值让服务端现场拼。
+     树图和雨图各算各的，但都写在这一处，ctxAct 只认这一个。 */
+  var ctxLib = null;
+  var SRC_REF = {};            /* 库 key -> 记没记住扫描根（'ok' / 'nopath' / ''） */
   var ctxX = 0, ctxY = 0;
   var branchNode = null;       /* 展开下级：锁定的那个节点（用对象身份，不用 key —— key 带序号会漂） */
-  var offline = false;         /* 离线：断开 WorkBuddy 的数据源，不拉新数据 */
+
+  /* 正在重读哪个库（key）。非空时那一行显示扫光，轮询只改文字不重画。 */
+  var refreshingKey = '';
+
+  /* 每个实时源各自记开/关。原先是**一个布尔管所有源**，而界面上现在
+     每行各有一个连接点 —— 点一个两个一起变，谁看都像坏了。 */
+  var liveOff = {};
+
+  /* 有哪些实时源。根层只加载到「库」这一级，libTree.children 就够。 */
+  function liveKeys(){
+    var out = [], ks = (libTree && libTree.children) || [], i;
+    for (i = 0; i < ks.length; i++){
+      if (ks[i] && ks[i].live) out.push(ks[i].wid);
+    }
+    return out;
+  }
+
+  /* 当前视图是不是被断开了。
+     根层同时显示所有源 → 只要还有一个连着，轮询就得继续，不能停。 */
+  function curOff(){
+    if (SOURCE) return !!liveOff[SOURCE];
+    var ks = liveKeys(), i;
+    if (!ks.length) return false;        /* 还不知道有哪些源：按「连着」算，宁多拉不漏拉 */
+    for (i = 0; i < ks.length; i++){
+      if (!liveOff[ks[i]]) return false;
+    }
+    return true;
+  }
 
   /* 状态词只有三种：已连接 / 待连接 / 离线。
      以前把「加载中… 展开工作区 · xxx」这类过程话也塞进这一格，
      结果它永远在变，还带着和当前层无关的数字，看着很误导。 */
   function setLive(html, stale){
     if (!LIVE) return;
-    var head = offline ? '离线' : (stale ? '待连接' : '已连接');
-    lvBox.className = 'on' + (offline ? ' off' : (stale ? ' stale' : ''));
+    lvStale = !!stale;
+    var off = curOff();
+    var head = off ? '离线' : (stale ? '待连接' : '已连接');
+    lvBox.className = 'on' + (off ? ' off' : (stale ? ' stale' : ''));
     /* 没有统计就只报状态 —— 别留一个孤零零的「·」 */
     lvText.innerHTML = html
       ? ('<b>' + head + '</b> <s>·</s> ' + html)
       : ('<b>' + head + '</b>');
+    drawLvPop();          /* 一定放在 className 设完之后：它会补上 multi */
+  }
+
+  /* 实时源 = 程序自己在写的那些。导入的库不算，
+     它们的「有没有新东西」永远不会变，列在这里是假的。 */
+  function liveSources(){
+    var ks = (libTree && libTree.children) || [], out = [], i;
+    for (i = 0; i < ks.length; i++){
+      if (ks[i] && ks[i].live && ks[i].wid) out.push(ks[i]);
+    }
+    return out;
+  }
+
+  /* 悬停展开的那张表。只有一个源时清空列表并摘掉 multi ——
+     class 一摘，CSS 里那条 :hover 规则就再也不匹配，面板不会出现。 */
+  function drawLvPop(){
+    if (!LIVE || !lvPop || !lvList) return;
+    var list = liveSources(), i, h = '';
+    if (list.length < 2){
+      lvList.innerHTML = '';
+      lvSig = '';                     /* 列表被清空了，指纹也要作废 */
+      lvBox.className = lvBox.className.replace(/\s*multi/g, '');
+      return;
+    }
+    if (lvBox.className.indexOf('multi') < 0) lvBox.className += ' multi';
+    var sig = '';
+    for (i = 0; i < list.length; i++){
+      sig += list[i].wid + (liveOff[list[i].wid] ? '0' : '1');
+    }
+    if (sig === lvSig) return;        /* 内容没变就别重建：hover 时会闪 */
+    lvSig = sig;
+    for (i = 0; i < list.length; i++){
+      var n = list[i], on = !liveOff[n.wid];
+      /* 灵动岛这一行也是「点一下就切连接」，所以悬浮提示和树图那个圆点用同一套话：
+         换两个说法，用户会以为它们是两个不同的开关。 */
+      h += '<b class="lvrow" data-lk="' + esc(n.wid) + '"'
+        + ' title="' + (on ? '同步更新中\n点击暂停' : '已暂停链接\n点击连接') + '">'
+        + '<i class="ld' + (on ? '' : ' off') + '"></i>'
+        + '<span class="ln">' + esc(n.name) + '</span>'
+        + '<em>' + (on ? '已连接' : '已断开') + '</em></b>';
+    }
+    lvList.innerHTML = h;
+  }
+
+  /* 面板搬出了 #live（原因见 CSS），CSS 的 :hover 传不到 body 的直属子元素，
+     所以进出各报一次。中间 6px 的缝由 #lvpop 的 padding-top 占着，
+     鼠标横穿过去不会掉；再加 120ms 宽限，手抖一下也不至于闪没。 */
+  var lvHideT = null;
+  function lvPlace(){
+    var r = lvBox.getBoundingClientRect();
+    lvPop.style.left = Math.round(r.left) + 'px';
+    lvPop.style.top = Math.round(r.bottom) + 'px';
+  }
+  function lvShow(){
+    if (lvBox.className.indexOf('multi') < 0) return;   /* 只有一个源：不给开 */
+    clearTimeout(lvHideT);
+    lvPlace();
+    lvPop.className = 'on';
+  }
+  function lvHideSoon(){
+    clearTimeout(lvHideT);
+    lvHideT = setTimeout(function(){ lvPop.className = ''; }, 120);
+  }
+  if (lvPop){
+    lvBox.addEventListener('mouseenter', lvShow);
+    lvBox.addEventListener('mouseleave', lvHideSoon);
+    lvPop.addEventListener('mouseenter', function(){ clearTimeout(lvHideT); });
+    lvPop.addEventListener('mouseleave', lvHideSoon);
+  }
+
+  /* 点面板里的一行 = 切换那一个源。跟右栏那个圆点是同一个动作、
+     同一份状态，不会两边打架。 */
+  if (lvPop){
+    lvPop.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-lk]') : null;
+      if (!b) return;
+      var k = b.getAttribute('data-lk');
+      setLink(k, !!liveOff[k]);      /* 现在断着 → 接上；现在连着 → 断开 */
+    });
   }
 
   /* src 是「库」这一层。不补它，顶级目录会回落成「2 项」——
@@ -1291,8 +1532,51 @@
     return n.w;
   }
 
+  /* ============ 界面密度：让不同分辨率 / 不同系统缩放下观感一致 ============
+     问题：字号写死 CSS px，而 1 CSS px 的物理大小 = 系统缩放倍数。
+     150% 的机器上 11px 变成 16.5 物理像素（偏大），100% 的机器上只有 11（偏小）。
+     设计稿是在 125% 那一档调的（用户实测「125% 时小正合适」），
+     所以这里把 125% 定成基准：dpr 越高，界面收得越小，物理尺寸不变。
+
+     四个夹子，缺一不可：
+       ① 上限 1.14 —— 100% 缩放的机器补大一点，但 11px×1.14 已经够，再大就俗
+       ② 下限 0.86 —— 200% 的 4K 屏收小，但别收到看不清
+       ③ 窗口宽度上限 —— 窗口只有 1000px 宽时不该按 1.14 撑，否则一屏挤不下几行
+       ④ 变化小于 0.015 就不写回去 —— 每次写 --ui 都会让整页重排，
+          拖动窗口时逐像素触发就是自己给自己造卡顿 */
+  var uiCur = 0;
+
+  function applyUi(){
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var ui = 1.25 / dpr;
+    if (ui > 1.14) ui = 1.14;
+    if (ui < 0.86) ui = 0.86;
+    var cap = window.innerWidth / 1150;
+    if (cap < 0.80) cap = 0.80;
+    if (ui > cap) ui = cap;
+    if (Math.abs(ui - uiCur) < 0.015) return;
+    uiCur = ui;
+    document.documentElement.style.setProperty('--ui', ui.toFixed(3));
+  }
+
+  /* 两块屏缩放比不同（本机就是）时，把窗口拖过去：DIP 尺寸可能一个像素都不变，
+     但 dpr 从 1.25 跳成 1.5 —— 那时 window.resize 不一定触发，--ui 就停在旧值上。
+     matchMedia 的分辨率查询专治这个：dpr 一变它就 change。
+     每次 change 后重新订阅，因为查询串里带着当时的 dpr，是一次性的。 */
+  (function watchDpr(){
+    if (!window.matchMedia) return;
+    var mq;
+    try { mq = window.matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)'); }
+    catch(e){ return; }
+    var onChange = function(){ watchDpr(); resize(); };
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else if (mq.addListener) mq.addListener(onChange);   /* 老 Chromium / Firefox */
+  })();
+
   function resize(){
     DPR = Math.min(window.devicePixelRatio || 1, 2);
+    applyUi();
+    F11 = uiFs(11); F12 = '500 ' + uiFs(12);
     var box = cv.getBoundingClientRect();
     W = Math.round(box.width); H = Math.round(box.height);
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
@@ -1585,7 +1869,12 @@
     var mergeT0 = (window.performance && performance.now) ? performance.now() : Date.now();
     var MERGE_BUDGET = 260;   /* 合并最多花这么久（毫秒）—— 超时就不合了 */
     var MERGE_ROUND = 4000;    /* 轮数上限只作为兜底，正常不会碰到 */
-    while (guard++ < MERGE_ROUND && items.length > 1){
+    /* ★ 大层直接跳过合并：合并是 O(n²)，一轮就要比 n²/2 次。
+       实测 D 盘某一层单个目录有 4545 项 —— 一轮 1000 万次比较，
+       而预算检查每 16 轮才查一次，等于先卡 0.6 秒才想起来该停。
+       何况最后只有 150 颗能活下来（见下面的同屏上限），
+       给 4000 多个小圆两两配对本身就是白干。 */
+    while (items.length <= 900 && guard++ < MERGE_ROUND && items.length > 1){
       /* 时间预算检查：每 16 轮查一次（查 performance.now 本身有开销） */
       if ((guard & 15) === 0){
         var nowMs = (window.performance && performance.now) ? performance.now() : Date.now();
@@ -2275,9 +2564,13 @@
       var b = beans[i];
       if (b.pinned){
         /* 固定雨滴：目标位就设成它此刻的位置，停在拖到的地方不回归。
-           它照样参与 relaxAll 的推挤，只是不再被拉回原处。 */
+           它照样参与 relaxAll 的推挤，只是不再被拉回原处。
+           但「不回归」不等于「可以出界」：落点立刻过一遍边界钳制，
+           拖到角上就贴着边界停住，而不是停在边界外 —— 松手后没有任何
+           后续步骤会来救它（relaxAll 只在拖动时跑）。 */
         b.tx = b.x;
         b.ty = b.y;
+        clampTarget(b);
         continue;
       }
       var s = snap[b.key];
@@ -2308,7 +2601,9 @@
     relaxTargets();
   }
 
-  /* 目标位之间的分离：只动 tx/ty，不碰 x/y，也不做椭圆钳制。
+  /* 目标位之间的分离：只动 tx/ty，不碰 x/y。
+     收边也在这里做（见下），但口径是「屏幕兜底 + 固定珠才管椭圆」——
+     普通珠的椭圆溢出是 packItems 的刻意取舍，这里不去推翻它。
      为什么不借 relaxAll：那个函数量的是**此刻的位置**、并且连带改 x/y。
      松手那一刻珠子全在半路上，拿它来收目标位会把整层推散
      （实测：3 对重叠 → 1067 对）。两个场景要的是两件事，不能共用一套。
@@ -2316,38 +2611,134 @@
      而且实测在「刚拖完」这个状态下重排反而更差（92 对重叠，同一份数据在静止时重排是 0 对）。
      已经排好的层不该被推倒重来，差几像素推一推就够了。 */
   function relaxTargets(){
-    var n = beans.length, i, j, pass, hit;
+    var n = beans.length, i, j, pass, hit, round, shift;
     if (n < 2) return;
-    for (pass = 0; pass < 40; pass++){
-      hit = 0;
+
+    /* 每一轮做两件事，顺序是「先收边、后拆重叠」：
+       ① 收边：把已经跑出可用范围的珠子拉回来；
+       ② 拆重叠：两两松弛，把压在一起的珠子推开。
+
+       为什么收边必须在拆之前：拆（推动）的结果一定是挨着而不压着，
+       而收边只是把某颗圆沿半径挪一段，挪完可能正好挪到别人身上 ——
+       实测最后一步收边会留下 -17px 的重叠，一直等到下次 sync 才被拆开。
+       所以让「拆」收尾，函数返回时保证的是「没有重叠」，
+       而「没有越界」由下一轮的收边负责（通常一轮就够）。
+
+       为什么不能高频交替：被挤到边界上的圆，钳回来压住邻居 → 下一轮再推开
+       → 再钳回来，两边顶牛，hit 永远不减，40 轮全跑满
+       （实测 74 颗 14ms、381 颗 23ms，每 1.5 秒来一次）。
+       分轮做就不会互相对抗：各自跑到自己的收敛点。
+
+       最多三轮；第一轮「一颗都没挪」（绝大多数层本来就全在界内）就直接收工，
+       省掉后两轮。 */
+    for (round = 0; round < 3; round++){
+      /* ① 收边。
+         口径分两种：
+         · 普通珠只兜**屏幕**。椭圆不是画出来的边界，packItems 在装不下时
+           本来就允许溢出到椭圆外（packSoft 1.15/1.30），拿椭圆硬兜会跟
+           包络打架：每 1.5 秒推一遍、收一遍，既掉帧又永不收敛
+           （实测 381 颗 3.5ms → 11.8ms）。但屏幕外是实打实的「看不见了」，
+           被窗口边缘切掉半个圆，必须兜。
+         · 固定珠两道都要（见 clampTarget）：它不回归，没有第二次机会。 */
+      var moved = 0;
       for (i = 0; i < n; i++){
-        var a = beans[i];
-        if (a.ta === 0 || a.pinned) continue;
-        var ar = a.tr || a.r;
-        if (ar < 2) continue;
-        for (j = i + 1; j < n; j++){
-          var b = beans[j];
-          if (b.ta === 0 || b.pinned) continue;
-          var br = b.tr || b.r;
-          if (br < 2) continue;
-          var dx = b.tx - a.tx, dy = b.ty - a.ty;
-          /* 不加 SHOVE_GAP：这个函数是「松手后把重叠收掉」，
-             不是「给每两颗之间塞一条缝」。加缝会让它和 packItems 的
-             口径不一致，于是每叫一次就把整层撑大一点。 */
-          var need = ar + br;
-          var d2 = dx * dx + dy * dy;
-          if (d2 >= need * need) continue;
-          var d = Math.sqrt(d2);
-          if (d < 0.01){ dx = 0.01 * (j - i + 1); dy = 0.012; d = Math.hypot(dx, dy); }
-          var over = (need - d) * 0.5;           /* 两边各让一半，一次解掉一半 */
-          var ux = dx / d, uy = dy / d;
-          a.tx -= ux * over; a.ty -= uy * over;
-          b.tx += ux * over; b.ty += uy * over;
-          hit++;
-        }
+        var c = beans[i];
+        if (c.ta === 0) continue;
+        var ox = c.tx, oy = c.ty;
+        if (c.pinned) clampTarget(c); else clampScreenTarget(c);
+        if (Math.abs(c.tx - ox) > 0.5 || Math.abs(c.ty - oy) > 0.5) moved++;
       }
-      if (!hit) break;
+      /* ② 拆重叠 */
+      for (pass = 0; pass < (round ? 10 : 40); pass++){
+        hit = 0;
+        shift = 0;
+        for (i = 0; i < n; i++){
+          var a = beans[i];
+          if (a.ta === 0) continue;
+          var ar = a.tr || a.r;
+          if (ar < 2) continue;
+          for (j = i + 1; j < n; j++){
+            var b = beans[j];
+            if (b.ta === 0) continue;
+            var br = b.tr || b.r;
+            if (br < 2) continue;
+            /* 两颗都固定：谁也推不动谁，这一对认了 */
+            if (a.pinned && b.pinned) continue;
+            var dx = b.tx - a.tx, dy = b.ty - a.ty;
+            /* 不加 SHOVE_GAP：这个函数是「松手后把重叠收掉」，
+               不是「给每两颗之间塞一条缝」。加缝会让它和 packItems 的
+               口径不一致，于是每叫一次就把整层撑大一点。 */
+            var need = ar + br;
+            var d2 = dx * dx + dy * dy;
+            if (d2 >= need * need) continue;
+            var d = Math.sqrt(d2);
+            /* 亚像素级重叠不算重叠。没有这道阈值时，一对「刚好贴住」的圆
+               每趟都算出 (need-d)≈1e-9 的位移、却照样 hit++，于是循环
+               永远等不到 !hit —— 跑满 40 趟，明明一颗都没动
+               （实测 74 颗从 0.2ms 涨到 4.4ms）。 */
+            if (need - d < 0.6) continue;
+            if (d < 0.01){ dx = 0.01 * (j - i + 1); dy = 0.012; d = Math.hypot(dx, dy); }
+            var over = (need - d) * 0.5;           /* 两边各让一半，一次解掉一半 */
+            var ux = dx / d, uy = dy / d;
+            /* 固定珠只当障碍、不跟着让 —— 它被推走就不叫「固定」了。
+               以前这里把 pinned 整颗跳过，结果是**固定珠压着谁都没人管**：
+               固定一颗攒一处重叠，固定几颗就叠几处，看着就是「雨滴越拖越多」。
+               单边让位要给整份间隙（over 是两边的量，乘 2 才是这一颗的），
+               否则每次只挪一半，几十趟也收不干净。 */
+            if (a.pinned){
+              b.tx += ux * over * 2; b.ty += uy * over * 2;
+            } else if (b.pinned){
+              a.tx -= ux * over * 2; a.ty -= uy * over * 2;
+            } else {
+              a.tx -= ux * over; a.ty -= uy * over;
+              b.tx += ux * over; b.ty += uy * over;
+            }
+            shift += over;
+            hit++;
+          }
+        }
+        /* 两个收敛条件：
+           · !hit —— 一对重叠都没有了，最干净；
+           · 这一趟总共只挪了不到 0.6px —— 已经在抖动区间里了。
+             密集层的两两松弛会互相顶（A 让 B、B 让 C、C 又顶 A），
+             hit 永远不减，40 趟全跑满还差 2px（实测 120ms/次）。
+             补上这条，抖到看不见就停，代价是留下亚像素级重叠。 */
+        if (!hit || shift < 0.6) break;
+      }
+      if (!moved) break;
     }
+  }
+
+  /* 椭圆钳制：可用范围 = 椭圆 × packSoft，和 relaxAll 的收尾同一口径。
+     半径用 tr（目标半径）：珠子还在长大时按最终大小算，才不会「长到外面去」。 */
+  function clampEllipse(b){
+    var rr = b.tr || b.r || 0;
+    var arx = Math.max(4, packRX * packSoft - rr);
+    var ary = Math.max(4, packRY * packSoft - rr);
+    var ex = b.tx - packCX, ey = b.ty - packCY;
+    var q = Math.sqrt((ex / arx) * (ex / arx) + (ey / ary) * (ey / ary));
+    if (q > 1){ b.tx = packCX + ex / q; b.ty = packCY + ey / q; }
+  }
+
+  /* 固定珠的钳制：椭圆 + 屏幕两道。
+     它「松手不回归」，除了这里没有任何地方会把它拉回来 ——
+     少这一段，拖到边角再固定就永久躺在边界外，固定几颗堆几颗。
+     为什么还要屏幕这一道：packSoft 到 1.3 时椭圆比屏幕大，
+     只按椭圆钳照样能把珠子留在屏幕外。 */
+  function clampTarget(b){
+    clampEllipse(b);
+    clampScreenTarget(b);
+  }
+
+  /* 屏幕钳制（目标位版）：和 clampScreen 同一个口径，只是看 tr 不看 r ——
+     目标位是「将要到达的位置」，珠子还在长大的时候按最终大小算才对。 */
+  function clampScreenTarget(b){
+    var rr = b.tr || b.r || 0;
+    var x0 = rr, x1 = W - rr, y0 = 80 + rr, y1 = H - 80 - rr;
+    if (x0 > x1){ x0 = x1 = W / 2; }
+    if (y0 > y1){ y0 = y1 = H / 2; }
+    if (b.tx < x0) b.tx = x0; else if (b.tx > x1) b.tx = x1;
+    if (b.ty < y0) b.ty = y0; else if (b.ty > y1) b.ty = y1;
   }
 
   /* ===== 拖动时：空出来的位置让邻居滑进去 =====
@@ -2424,6 +2815,16 @@
   var EYE_OFF = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"'
     + ' stroke-linecap="round"><path d="M1.1 6S3 2.9 6 2.9 10.9 6 10.9 6 9 9.1 6 9.1 1.1 6 1.1 6z" opacity=".5"/>'
     + '<path d="M2.4 9.6 9.6 2.4"/></svg>';
+
+  /* 连接点：实心 = 连着（会跟着这个源变），空环 = 断开（不再检查更新）。
+     用圆点而不是插头/链条：一列里它只有一个字符那么大，能分辨实心空心就够了。 */
+  var LINK_ON = '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="3.3" fill="currentColor"/></svg>';
+  var LINK_OFF = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2">'
+    + '<circle cx="6" cy="6" r="3.3"/></svg>';
+  /* 重读磁盘：一个开口圆弧 + 箭头。比「循环箭头」少两笔，12px 下更认得出 */
+  var RELOAD = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.25"'
+    + ' stroke-linecap="round"><path d="M10 6a4 4 0 1 1-1.3-2.95"/>'
+    + '<path d="M10.1 1.5v2.2H7.9"/></svg>';
 
   /* 锁：和眼睛完全不同的一件事。
      眼睛 = 「这一层在雨图里不画」（数据还在，接口照给）。
@@ -2826,10 +3227,56 @@
     /* 默认只展开根（资料库/projects），工作区那一层一律收起 */
     return v === undefined ? depth < 1 : !!v;
   }
-  function rowsOf(node, depth, keyPath, out, acts){
+  /* 行尾第一格：「我和磁盘是什么关系」。
+     实时源 = 连接点（实心连着 / 空环断开），导入库 = ↻ 重读磁盘。
+     这一段两栏共用一份 —— 它画在**左栏**（磁盘上真实的样子）的行尾，
+     右栏只剩显示与库管理（眼睛 / 锁 / ×）。同一个源不会既是实时又是导入，
+     所以一格装两种控件就够，分成两列只会让每行都空一格。 */
+  /* 悬浮提示只报两件事：**现在是什么状态** / **点它会发生什么**。
+     分两行是有意的 —— 鼠标停在图标上，人先确认「现在」，再决定要不要点。
+     以前那两句「已连接：会跟着这个源更新。点它断开（数据不动，随时能接回来）」
+     把状态、后果、保证全塞在一行里，读起来像说明书，反而看不到按钮是干什么的。 */
+  function linkCell(node){
+    if (node.live){
+      var lOn = !liveOff[node.wid];
+      return '<b class="tlink' + (lOn ? '' : ' off') + '" data-link="' + esc(node.wid) + '"'
+        + ' title="' + (lOn ? '同步更新中\n点击暂停' : '已暂停链接\n点击连接') + '"'
+        + '>' + (lOn ? LINK_ON : LINK_OFF) + '</b>';
+    }
+    if (node.ref){
+      /* 结构树都给 ↻，**不做灰的** —— 灰按钮是「看得见点不动」，
+         比没有更让人困惑。老库（没记住路径）点了会直接告诉你怎么办。 */
+      return '<b class="trel" data-rel="' + esc(node.wid) + '"'
+        + ' title="点击刷新数据源'
+        + (node.src ? '' : '\n这个库没记住原路径') + '"'
+        + '>' + RELOAD + '</b>';
+    }
+    /* 示例库、CSV 这种没有可重读的目录：槽位照留，图标才对得齐 */
+    return '<b class="tgap"></b>';
+  }
+  /* 能不能断：只有「库」那一行可以 —— 库里面的目录/文件不是链接，没有可断的东西。
+     内置示例库（key 就叫 csv）和本机会话也不能断：它们不在 sources/ 里，
+     断了也回不来。 */
+  function canCut(node, ad){
+    return node.kind === 'src' && ad.indexOf('/') < 0
+      && ad !== 'workbuddy' && ad !== 'csv';
+  }
+  /* 行尾第二格：✕ 断开这个库。两下确认（第一下变红）在 askDel 里。 */
+  function delCell(node, ad){
+    if (!canCut(node, ad)) return '<b class="tgap"></b>';
+    return '<b class="tdel' + (delPending === ad ? ' on' : '') + '" data-del="' + esc(ad) + '" title="'
+      + (delPending === ad ? '再点一次，断开这个库' : '断开这个库') + '">'
+      + '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2">'
+      + '<path d="M3 3l6 6M9 3l-6 6"/></svg></b>';
+  }
+  /* inLive：这一行在不在一个「实时源」底下。整支都不写时间 ——
+     实时源本来就是一直跟着变的，底下每一层都挂个「刚刚」只会让整栏发毛。 */
+  function rowsOf(node, depth, keyPath, out, acts, inLive){
     var kids = node.children || [];
-    /* 会话节点是懒加载的：此刻没加载过明细，但它一定有下钻，所以照样给箭头 */
-    var lazy = (node.kind === 'session' && node.sid);
+    var isLive = !!inLive || !!node.live;
+    /* 懒加载的两种：会话（sid，点开取回合）、结构树目录（lid，点开取下一层）。
+       此刻还没加载过明细，但它们一定有下钻，所以照样给箭头 */
+    var lazy = (node.kind === 'session' && node.sid) || (node.lazy && node.lid);
     var has = kids.length > 0 || lazy;
     var open = has && treeIsOpen(keyPath, depth);
     treeNodeMap[keyPath] = node;
@@ -2840,52 +3287,75 @@
     var lkKey = lockKeyOf(node);
     var cls = 'trow' + (has ? ' hit' : '')
       + (isHidden(ad) ? ' hid' : '')
-      + (ad && ad === curAddr ? ' sel' : '');
+      + (ad && ad === curAddr ? ' sel' : '')
+      + (ad && ad === refreshingKey ? ' refreshing' : '');
     var h = '<div class="' + cls + '" data-k="' + esc(keyPath) + '" data-d="' + depth + '"'
       + ' data-addr="' + esc(ad) + '"';
+    /* 记下每个库「记没记住扫描根」（ref 见 build_columns）。
+       雨图右键要用：那里没有树行可查，只有正在看的库 key。 */
+    if (node.kind === 'src' && node.wid) SRC_REF[String(node.wid)] = node.ref || '';
     h += ' style="padding-left:' + (8 + depth * 13) + 'px">';
     h += '<span class="tw">' + (has ? (open ? '\u25be' : '\u25b8') : '') + '</span>';
     h += '<span class="tn' + (node.mono ? ' tmono' : '') + '">' + esc(dispName(node)) + '</span>';
     if (node.note) h += '<span class="tq">' + esc(node.note) + '</span>';
     /* 根行不写数字：表头报的已经是同一个数，隔一行再报一遍像两套口径 */
-    if (node.right && depth > 0) h += '<span class="tm">' + esc(node.right) + '</span>';
-    /* 行尾两列按钮只出现在右列（雨图显示的样子）：眼睛管「这一层在雨图里显不显示」，
-       × 管「断开这个库」。根行没有按钮 —— 根不是一个可以被藏掉或删掉的东西。 */
+    var rnum = node.right || '';
+    /* 实时源（连同它下面每一层）不写时间：它本来就是「一直跟着变」，
+       再挂一句「刚刚」等于把「不用你操心」的事又提醒一遍。
+       导入的库相反 —— 快照会旧，那个时间必须挂着（见 agoText 的注释）。 */
+    if (node.at && !isLive){
+      var ago = agoText(node.at);
+      if (ago) rnum += (rnum ? ' · ' : '') + ago;
+    }
+    /* 数字这一格**每行都要有**，空了也要留。
+       它带着 margin-left:auto —— 少了它，行尾那排按钮就贴到名字后面去，
+       一列图标变成锯齿（导入库里每一行都没有数字，所以最明显）。
+       空的时候不占宽度（CSS 里 .tm:empty 把 padding 归零）。 */
+    if (depth > 0){
+      h += '<span class="tm"'
+        + (node.src ? ' title="' + esc('这份清单读自 ' + node.src) + '"' : '')
+        + '>' + esc(rnum) + '</span>';
+    }
+    /* acts：'disk' = 左栏（磁盘上真实的样子），给「连接/重读」+「断开」；
+       真值 = 右栏（雨图显示的样子），只给 眼睛 / 锁。
+       为什么这么分：左栏讲的都是「我和磁盘/这个文件是什么关系」（连不连、重不重读、
+       还留不留这个库），右栏讲的是「它在雨图里怎么显示」（看不看得到、锁不锁）。
+       根行两栏都不给按钮 —— 根不是一个可以被藏掉、锁上或删掉的东西。 */
     if (acts && depth > 0 && ad){
-      var own = !!hiddenAddr[ad];
-      var isLib = (node.kind === 'src' && ad.indexOf('/') < 0);
-      h += '<span class="tacts">';
-      h += '<b class="teye' + (own ? ' on' : '') + '" data-eye="' + esc(ad) + '" title="'
-        + (own ? '取消隐藏：让它在雨滴图中重新出现' : '隐藏：在雨滴图中隐藏')
-        + '">' + (own ? EYE_OFF : EYE_ON) + '</b>';
-      /* 锁：**只有这一个图标随状态变**，这一行的其余部分一点不动。
-         已锁 = 红色实心 + 点它解锁；未锁 = 灰线框 + 点它上锁。
-         未锁那条要把原始字段一起带上 —— 地址是编码过的（Desktop%2F…），
-         后端的身份是 rel:/wid:/sid: 三种原值，拿地址去比对永远对不上。 */
-      if (lkKey){
-        h += '<b class="tlk on" data-unlock="' + esc(lkKey) + '"'
-          + ' title="已锁定：禁止 AI 搜索和操作。点它输密码解锁">' + LOCK_ON + '</b>';
+      if (acts === 'disk'){
+        /* 左栏（磁盘上真实的样子）行尾 = 连接/重读 + 断开，**每一行都留这两格**。
+           子体（目录 / 文件 / 会话行）自己没有可连可断的东西，但格子必须空出来 ——
+           否则数字一深一层就右移两格，整列变成锯齿，扫下来眼睛一直在跳。
+           空槽不是「功能」是「对齐」：看得见的是图标，看不见的是那条竖线。 */
+        h += '<span class="tacts">'
+          + ((node.live || node.ref) ? linkCell(node) : '<b class="tgap"></b>')
+          + delCell(node, ad) + '</span>';
       } else {
-        h += '<b class="tlk" data-lock="' + esc(ad) + '"'
-          + ' data-lrel="' + esc(node.rel || '') + '"'
-          + ' data-lsid="' + esc(node.sid || '') + '"'
-          + ' data-lwid="' + esc(node.wid || '') + '"'
-          + ' data-luid="' + esc(node.uid || '') + '"'
-          + ' data-lsrc="' + esc(node.srcKey || '') + '"'
-          + ' title="锁定：禁止 AI 搜索和操作，你自己照常用'
-          + (LOCK_STATE.has_pwd ? '' : '（首次需先设密码）')
-          + '">' + LOCK_OFF + '</b>';
+        var own = !!hiddenAddr[ad];
+        h += '<span class="tacts">';
+        h += '<b class="teye' + (own ? ' on' : '') + '" data-eye="' + esc(ad) + '" title="'
+          + (own ? '取消隐藏：让它在雨滴图中重新出现' : '隐藏：在雨滴图中隐藏')
+          + '">' + (own ? EYE_OFF : EYE_ON) + '</b>';
+        /* 锁：**只有这一个图标随状态变**，这一行的其余部分一点不动。
+           已锁 = 红色实心 + 点它解锁；未锁 = 灰线框 + 点它上锁。
+           未锁那条要把原始字段一起带上 —— 地址是编码过的（Desktop%2F…），
+           后端的身份是 rel:/wid:/sid: 三种原值，拿地址去比对永远对不上。 */
+        if (lkKey){
+          h += '<b class="tlk on" data-unlock="' + esc(lkKey) + '"'
+            + ' title="已锁定：禁止 AI 搜索和操作。点它输密码解锁">' + LOCK_ON + '</b>';
+        } else {
+          h += '<b class="tlk" data-lock="' + esc(ad) + '"'
+            + ' data-lrel="' + esc(node.rel || '') + '"'
+            + ' data-lsid="' + esc(node.sid || '') + '"'
+            + ' data-lwid="' + esc(node.wid || '') + '"'
+            + ' data-luid="' + esc(node.uid || '') + '"'
+            + ' data-lsrc="' + esc(node.srcKey || '') + '"'
+            + ' title="锁定：禁止 AI 搜索和操作，你自己照常用'
+            + (LOCK_STATE.has_pwd ? '' : '（首次需先设密码）')
+            + '">' + LOCK_OFF + '</b>';
+        }
+        h += '</span>';
       }
-      /* 示例库和本机会话不是「链接」，没有可断的东西 —— 但槽位照留，图标才对齐 */
-      if (isLib && ad !== 'workbuddy' && ad !== 'csv'){
-        h += '<b class="tdel' + (delPending === ad ? ' on' : '') + '" data-del="' + esc(ad) + '" title="'
-          + (delPending === ad ? '再点一次，断开这个库' : '断开这个库') + '">'
-          + '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2">'
-          + '<path d="M3 3l6 6M9 3l-6 6"/></svg></b>';
-      } else {
-        h += '<b class="tgap"></b>';
-      }
-      h += '</span>';
     }
     out.push(h + '</div>');
     /* 「任务」是透视层：它的子节点直接挂到上一级路径，不额外占一层键身份，
@@ -2900,7 +3370,7 @@
       /* 必须和雨图用同一个 addrSeg。以前这里只认 wid/sid，
          文件节点落到行号 i —— 于是两个视图各有一套身份：
          树图的行和雨图的圆对不上号，排序一变文件行的地址也跟着变。 */
-      rowsOf(kids[i], depth + 1, base + '/' + addrSeg(kids[i], i), out, acts);
+      rowsOf(kids[i], depth + 1, base + '/' + addrSeg(kids[i], i), out, acts, isLive);
     }
   }
   /* 悬停联动：两列说的是同一批东西，鼠标压在哪一行，另一边同一行也亮。
@@ -2969,9 +3439,46 @@
   function drawTrees(){
     clearLink();                       /* 行被重建了，旧的引用作废 */
     var keep1 = tbdEl.scrollTop, keep2 = tbmEl.scrollTop;
-    if (diskTree){ var a = []; stampAddr(diskTree, ''); rowsOf(diskTree, 0, 'd', a, false); tbdEl.innerHTML = a.join(''); }
+    /* 左栏只放「连接 / 重读」，右栏只放「眼睛 / 锁 / ×」——
+       acts 传的是栏的身份，不是布尔：两栏要的格子不一样，用一个 true 分不出来 */
+    if (diskTree){ var a = []; stampAddr(diskTree, ''); rowsOf(diskTree, 0, 'd', a, 'disk'); tbdEl.innerHTML = a.join(''); }
     if (libTree){ var b = []; stampAddr(libTree, ''); rowsOf(libTree, 0, 'm', b, true); tbmEl.innerHTML = b.join(''); }
     tbdEl.scrollTop = keep1; tbmEl.scrollTop = keep2;
+    /* 右栏数据一变就来这儿。实时源列表只在 /api/columns 里有，
+       所以面板必须在拿到 libTree 之后重画 —— 只靠 setLive 会漏掉第一帧。 */
+    drawLvPop();
+  }
+  /* 两栏是同一份数据的**两个副本**（各自 stampAddr、各自持有 children）。
+     在一栏里点开一层，只有那一份装上了孩子节点 —— 另一份还是 lazy，
+     于是「左边展开了、右边没动」。按共用地址把另一半也补上。
+     两边共用同一批孩子对象是安全的：地址不含 d/m 前缀，两边算出来一样。 */
+  function nodeByAddr(rootNode, addr){
+    if (!rootNode || !addr) return null;
+    var stack = [rootNode], i, n, kids;
+    while (stack.length){
+      n = stack.pop();
+      if (!n) continue;
+      if (n.__addr === addr) return n;
+      kids = n.children;
+      if (kids) for (i = 0; i < kids.length; i++) stack.push(kids[i]);
+    }
+    return null;
+  }
+  /* 把 node 刚装上的孩子，同步给另一栏里同一地址的节点 */
+  function mirrorOpen(node){
+    if (!node || !node.__addr) return;
+    var other = null, t, i;
+    var trees = [diskTree, libTree];
+    for (i = 0; i < trees.length; i++){
+      t = trees[i];
+      if (!t) continue;
+      var hit = nodeByAddr(t, node.__addr);
+      if (hit && hit !== node){ other = hit; break; }
+    }
+    if (!other) return;
+    other.children = node.children;
+    other.lazy = node.lazy;
+    other.more = node.more;
   }
   function loadTreeSession(node){
     node.__loaded = true;
@@ -2984,6 +3491,7 @@
           node.children = d.tree.children;
           stampKids(node);
           treeOpen[treeAddr(node.__key)] = true;
+          mirrorOpen(node);            /* 另一栏同一行也跟着张开 */
           drawTrees();
         } else {
           node.__loaded = false;
@@ -2994,9 +3502,18 @@
   }
   function onTreeClick(e){
     /* 行尾按钮先接：它们不能再触发「点行」—— 点眼睛不该顺手把这一行展开 */
-    var btn = e.target.closest ? e.target.closest('[data-eye],[data-del],[data-lock],[data-unlock]') : null;
+    var btn = e.target.closest ? e.target.closest('[data-eye],[data-del],[data-lock],[data-unlock],[data-link],[data-rel]') : null;
     if (btn){
       e.stopPropagation();
+      if (btn.hasAttribute('data-link')){
+        var lk = btn.getAttribute('data-link');
+        setLink(lk, !!liveOff[lk]);        /* 现在断着 → 接上；现在连着 → 断开 */
+        return;
+      }
+      if (btn.hasAttribute('data-rel')){
+        reloadSource(btn.getAttribute('data-rel'));
+        return;
+      }
       if (btn.hasAttribute('data-eye')) toggleHidden(btn.getAttribute('data-eye'));
       else if (btn.hasAttribute('data-lock')) askLock(btn);
       else if (btn.hasAttribute('data-unlock')) askUnlock(btn.getAttribute('data-unlock'));
@@ -3012,6 +3529,16 @@
     if (row.getAttribute('data-addr')) setCur(row.getAttribute('data-addr'));
     if (node.kind === 'session' && node.sid && !node.__loaded){
       loadTreeSession(node);
+      return;
+    }
+    /* 结构树目录：点开才拉这一层，拉回来直接展开（loadTreeSession 的同款流程） */
+    if (node.lazy && node.lid && !(node.children && node.children.length)){
+      node.__loaded = true;
+      loadLazyKids(node, function(){
+        treeOpen[treeAddr(node.__key)] = true;
+        mirrorOpen(node);              /* 另一栏同一行也跟着张开 */
+        drawTrees();
+      });
       return;
     }
     if (!(node.children && node.children.length)) return;
@@ -3364,6 +3891,10 @@
         loadSession(hit, function(){ applyAddr(addr); });
         return;
       }
+      if (hit.lazy && hit.lid && !(hit.children || []).length){
+        loadLazyKids(hit, function(){ applyAddr(addr); });
+        return;
+      }
       chain.push(hit);
       cur = hit;
     }
@@ -3575,7 +4106,7 @@
   function qRender(hits){
     if (!hits.length){
       qList.innerHTML = '<em>没有匹配</em>';
-      qList.className = 'on';
+      qShow();
       qList.__hits = [];
       return;
     }
@@ -3594,13 +4125,13 @@
       }
     }
     qList.innerHTML = out.join('');
-    qList.className = 'on';
+    qShow();
     qList.__hits = hits;
   }
 
   function qRun(){
     var kw = (qEl.value || '').trim().toLowerCase();
-    if (!kw){ qList.className = ''; qList.__hits = null; return; }
+    if (!kw){ qHide(); qList.__hits = null; return; }
     qBuild(function(arr){
       var hits = [], i, h;
       for (i = 0; i < arr.length && hits.length < 40; i++){
@@ -3613,7 +4144,7 @@
          正文命中交给服务端算，回来再补 —— 两边合起来才画的话，
          打字时会有一段什么都看不见的空档。 */
       if (hits.length) qRender(hits);
-      else { qList.innerHTML = '<em>搜索正文…</em>'; qList.className = 'on'; qList.__hits = []; }
+      else { qList.innerHTML = '<em>搜索正文…</em>'; qShow(); qList.__hits = []; }
       qBodySearch(kw, hits);
     });
   }
@@ -3648,7 +4179,7 @@
   }
 
   function qJump(h){
-    qList.className = '';
+    qHide();
     qList.__hits = null;
     qEl.value = '';
     adBlur();
@@ -3721,7 +4252,7 @@
     crumb.style.display = 'none';
     /* 点空白处＝把整条路径装进输入框并全选：直接打字就是替换，不用先删 */
     qEl.value = pathText();
-    qList.className = '';
+    qHide();
     qEl.focus();
     try { qEl.select(); } catch (e) {}
   }
@@ -3731,7 +4262,7 @@
     adFocused = false;
     adBox.className = 'on';
     crumb.style.display = 'flex';
-    qList.className = '';
+    qHide();
     qEl.value = '';                 /* 退出输入态就还原成路径显示 */
     if (qEl.blur) qEl.blur();
   }
@@ -3754,10 +4285,28 @@
     qJump({ chain: c.chain, sid: c.sid || '' });
   }
 
+  /* 这个源是不是「死快照」（导入的文件夹 / CSV / JSON）。
+     它不会自己变，每 1.5 秒问一遍纯属空转；更新要靠那个 ↻。 */
+  function staticSource(key){
+    if (!key) return false;                /* 根层还有实时源混着，得继续轮询 */
+    var ks = (libTree && libTree.children) || [], i;
+    for (i = 0; i < ks.length; i++){
+      if (ks[i] && ks[i].wid === key) return !ks[i].live;
+    }
+    return false;                          /* 认不出来：按「会变」算，宁多拉不漏拉 */
+  }
+
   function livePull(){
-    if (offline) return;                   /* 离线：不拉新数据，画面冻住 */
+    if (curOff()) return;                  /* 当前视图的源被断开了：不拉新数据，画面冻住 */
     beatPull();
-    if (MODE === 'tree'){ treePull(); return; }
+    if (MODE === 'tree'){
+      treePull();
+      /* 树图没有「当前这一层」的概念，不报统计；但状态必须刷 ——
+         不刷的话胶囊会一直停在初始的「连接中…」，而且悬停面板也不会出现。 */
+      setLive('', false);
+      return;
+    }
+    if (staticSource(SOURCE)) return;      /* 导入库：不轮询，靠 ↻ 手动重读 */
     var url = (!SOURCE) ? '/api/roots'
       : (VIEW === 'library')
         ? '/api/shelves?source=' + SOURCE
@@ -3813,6 +4362,34 @@
         node.loading = false;
         setLive('未识别会话', true);
       });
+  }
+
+  /* 结构树 / JSON 的目录懒加载：点开一层才拉一层。
+
+     和 loadSession 分开写，因为分页口径不同：会话要 tail（取最后 200 个回合），
+     目录树要 head（从第一个子项开始）。混在一起两边都不对。
+
+     这条路径是能装下几十万文件的关键 —— 导入时只建索引不建树，
+     根层几十个目录，点进去才取那一层。 */
+  var LAZY_PAGE = 500;
+  function loadLazyKids(node, cb){
+    if (!node || !node.lid || node.loading) return;
+    node.loading = true;
+    fetch('/api/session?id=' + encodeURIComponent(node.lid) +
+          '&limit=' + LAZY_PAGE, { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        node.loading = false;
+        if (d && d.tree && d.tree.children && d.tree.children.length){
+          node.children = d.tree.children;
+          stampKids(node);
+          node.lazy = false;
+          /* 还有多少没装进来（一层超过 LAZY_PAGE 时） */
+          node.more = (d.tree._total || 0) > (d.tree._limit || 0) ? d.tree._total : 0;
+          cb && cb();
+        }
+      })
+      .catch(function(){ node.loading = false; });
   }
 
   /* 点工作区时才拉它的会话列表：首屏不再扛 100 个会话 */
@@ -4145,7 +4722,7 @@
     if (!f) return;
     ctx.textAlign = 'center';
     ctx.fillStyle = TC.ink;
-    ctx.font = '500 15px system-ui,-apple-system,"PingFang SC",sans-serif';
+    ctx.font = '500 ' + uiFs(15);
     /* 中心珠再大也有边。15px 一行放不下就折两行，行距按字的 1.4 倍走 ——
        原来直接怼一行原名，长标题会横穿整个大圆。 */
     var cn = circleLabel(f) || String(f.name || '');
@@ -4156,7 +4733,7 @@
     else ctx.fillText(c1, CX, expanded ? CY - 6 : CY - 4);
     if (c2) ctx.fillText(c2[1], CX, expanded ? CY + 7 : CY + 9);
     ctx.fillStyle = TC.sub;
-    ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+    ctx.font = uiFs(11);
     ctx.fillText(fitText(expanded ? wtext(f) : '点一下展开', chordW(R, 12) * 0.94),
                  CX, expanded ? (c2 ? CY + 28 : CY + 12) : (c2 ? CY + 30 : CY + 14));
   }
@@ -4222,8 +4799,14 @@
   /* ---- 字体/虚线常量：font 赋值是 Canvas2D 里最贵的状态变更之一
      （每次都触发字体解析），常量化 + 「变了才赋」，一帧从几百次降到个位数 ---- */
   var F10 = '500 10px system-ui,-apple-system,"PingFang SC",sans-serif';
-  var F11 = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
-  var F12 = '500 12px system-ui,-apple-system,"PingFang SC",sans-serif';
+  /* 画布上的字不进 CSS，乘不到 --ui，只能在这里自己乘。
+     uiCur 是 applyUi() 算出来的同一个数，两边的密度才对得上。 */
+  function uiFs(n){
+    var v = Math.round(n * (uiCur || 1) * 10) / 10;
+    return v + 'px system-ui,-apple-system,"PingFang SC",sans-serif';
+  }
+  var F11 = uiFs(11);
+  var F12 = '500 ' + uiFs(12);
   var F13 = '500 13px system-ui,-apple-system,"PingFang SC",sans-serif';
   var F14 = '500 14px system-ui,-apple-system,"PingFang SC",sans-serif';
   var DASH = [3, 3], NDASH = [];
@@ -4466,14 +5049,14 @@
       ctx.save();
       ctx.textAlign = 'center';
       ctx.fillStyle = TC.sub;
-      ctx.font = '13px system-ui,-apple-system,"PingFang SC",sans-serif';
+      ctx.font = uiFs(13);
       if (LIVE){
         ctx.fillText('正在读取…', CX, CY - 8);
-        ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+        ctx.font = uiFs(11);
         ctx.fillText('第一次要建索引，之后是秒开', CX, CY + 14);
       } else {
         ctx.fillText('未注入流程树', CX, CY - 8);
-        ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+        ctx.font = uiFs(11);
         ctx.fillText('在 data.js 填 RAINDROP_TREE', CX, CY + 14);
       }
       ctx.restore();
@@ -4498,9 +5081,9 @@
       ctx.save();
       ctx.textAlign = 'center';
       ctx.fillStyle = TC.sub;
-      ctx.font = '13px system-ui,-apple-system,"PingFang SC",sans-serif';
+      ctx.font = uiFs(13);
       ctx.fillText('这一层没有内容', CX, CY - 8);
-      ctx.font = '11px system-ui,-apple-system,"PingFang SC",sans-serif';
+      ctx.font = uiFs(11);
       ctx.fillText('退回上一层，或切到树图看结构', CX, CY + 14);
       ctx.restore();
       requestAnimationFrame(step);
@@ -4682,6 +5265,20 @@
     }).catch(function(){ flashTip('打不开'); });
   }
   function revealNode(node){ withDiskPath(node, true); }
+
+  /* 结构树里一个文件的两件事：run=true 用默认程序打开它本身，false 在资源管理器里选中。
+     只报「哪个库 + 库内相对路径」，绝对路径由服务端拼 —— 这样这个接口没法被
+     页面脚本拿去打开任意文件；拼出来还得落在库根之内，越界直接不认。 */
+  function revealInLib(libKey, rel, run){
+    if (!libKey || !rel){ flashTip('这一行没有磁盘位置（虚拟层）'); return; }
+    fetch('/api/reveal', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src: libKey, in: rel, run: !!run })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (!d || !d.ok){ flashTip((d && d.reason) || '打不开'); return; }
+      flashTip(run ? '已用默认程序打开' : '已在资源管理器中选中');
+    }).catch(function(){ flashTip('打不开'); });
+  }
   /* 复制的是磁盘真路径（C:\Users\…\xxx.jsonl），不是「资料库 › GonJui › …」那种层级。
      以前 copypath 拼的是面包屑，粘到资源管理器地址栏打不开 —— 名字叫复制路径，干的不是这事。 */
   function copyDiskPath(node){
@@ -4711,19 +5308,20 @@
   }
 
   /* 带二级菜单的项：右边不写说明文字，只留一个箭头 —— 说明写进下一层，
-     父层再写一遍「文件 / 文件夹」就是在替下一层做决定，反而把箭头挤小。 */
-  function ctxSub(label){
-    return '<i data-act="addsrc" class="sub"><span>' + esc(label) + '</span></i>';
-  }
+     父层再写一遍「文件 / 文件夹」就是在替下一层做决定，反而把箭头挤小。
+     ⚠ 2026-11-13：主菜单已改成平铺（见 srcRows），这个函数和下面整套二级菜单
+     都没有调用方了，留着只会在下次改动时误以为还有这条路 —— 已一并删掉。 */
 
-  /* 「新增数据源」的两个入口。
-     原来是二级子菜单（点一下「新增数据源」才弹出两个选项），
-     层级多一层、多点一次。现在直接平级列出来 —— 就两行字，
-     藏进子菜单反而让人先看到标题、再点一次才知道能干什么。
-     位置固定在「离线/实时」那一项下面。 */
+  /* 「新增数据源」的两个入口，平铺在主菜单上。
+     2026-11-12 试过收进「管理数据源」二级菜单，又退回来了 ——
+     就两条目，藏一层等于每次多点一下，省下的横向空间换不回那一秒。
+     2026-11-13 删掉「· 文件夹」那一项：它走浏览器 webkitdirectory，
+     拿不到绝对路径 → 导进去的库永远不能重读（↻ 只会提示「没记住原路径」）。
+     2026-11-13 晚「· CSV / JSON」改名「· 文件」：格式列不完（现在还有 OPML、Markdown），
+     写全了一行放不下。格式由系统文件框的过滤器负责，菜单只说要干什么。 */
   function srcRows(){
-    return ctxItem('addsrc-file', '新增数据源 · CSV', '导入成一个库') +
-           ctxItem('addsrc-dir', '新增数据源 · 文件夹', '目录结构就是树');
+    return ctxItem('addsrc-file', '新增数据源 · 文件', '链接到磁盘上这个文件') +
+           ctxItem('scandir', '新增数据源 · 扫描目录', '弹窗选文件夹，服务端扫');
   }
 
   /* 六套主题的清单：名字 / 悬停说明。色块的颜色不在这里 ——
@@ -4822,9 +5420,24 @@
   function showCtx(x, y, bean){
     ctxBean = bean || null;
     ctxTree = null;
+    ctxLib = null;
     ctxX = x; ctxY = y;
     var h = ctxItem('rain', '下雨', '刷新 F5');
     if (ctxBean){
+      /* 扫描出来的库里，珠子也是文件/文件夹 —— 它们没有绝对路径，
+         但「当前库 + 沿 path 拼出来的库内相对路径」够定位（后端 src+in 分支）。
+         雨图里没有树行可查，所以「库记没记住扫描根」靠画树时记下的 SRC_REF。 */
+      var bn = ctxBean.node;
+      var bkind = bn && bn.kind;
+      /* 只在「扫描/导入出来的库」（key 前缀 tree-）里成立。
+         SRC_REF 是画树时记下的「这个库记没记住扫描根」；雨图里可能还没画过树，
+         那就是未知 —— 未知按「能试」处理，点下去库没记路径时后端会直说原因，
+         比在这儿猜一个灰按钮强。 */
+      var known = SRC_REF[SOURCE];
+      if ((bkind === 'file' || bkind === 'dir') && SOURCE
+          && SOURCE.indexOf('tree-') === 0 && (!known || known === 'ok')){
+        ctxLib = { key: SOURCE, rel: libRelOfBean(ctxBean), isDir: (bkind === 'dir') };
+      }
       h += '<hr>';
       h += ctxItem('pin', ctxBean.pinned ? '取消固定雨滴' : '固定雨滴',
                    ctxBean.pinned ? '松手不回归' : '松手不回归');
@@ -4840,12 +5453,24 @@
       var own = diskOwnerOfBean(ctxBean);
       var rv = !!(own && (own.sid || own.rel || own.wid || own.disk));
       var wsw = wsWidOfBean(ctxBean);
-      h += ctxItem('openws', '在工作空间中打开',
-                   wsw ? '项目文件夹' : '不属于任何工作区',
-                   wsw ? '' : 'off');
-      h += ctxItem('reveal', '在资源管理器中打开',
-                   rv ? '磁盘位置' : '虚拟层没有磁盘位置',
-                   rv ? '' : 'off');
+      if (ctxLib && !rv){
+        /* 扫描库里的珠子：只有「打开 / 定位」这两件成立，
+           「在工作空间中打开」不成立（这些文件不属于任何 WorkBuddy 工作区），
+           所以干脆不摆出来 —— 摆出来只能是灰的。 */
+        if (ctxLib.isDir){
+          h += ctxItem('reveal', '在资源管理器中打开', '这个文件夹');
+        } else {
+          h += ctxItem('openfile', '打开文件', '用默认程序');
+          h += ctxItem('reveal', '在资源管理器中定位', '选中这个文件');
+        }
+      } else {
+        h += ctxItem('openws', '在工作空间中打开',
+                     wsw ? '项目文件夹' : '不属于任何工作区',
+                     wsw ? '' : 'off');
+        h += ctxItem('reveal', '在资源管理器中打开',
+                     rv ? '磁盘位置' : '虚拟层没有磁盘位置',
+                     rv ? '' : 'off');
+      }
     } else {
       /* 雨图空白处只放全局项：主题 + 实时/离线。
          「调参」不在这里 —— 它调的是树图底下那层雨动画，跟雨图没有关系，
@@ -4856,8 +5481,8 @@
     /* 数据源三项：不管右键点在珠子还是空白，都固定在这一段，
        位置不变、顺序不变 —— 找东西靠肌肉记忆，不靠每次重新读菜单。 */
     h += '<hr>';
-    h += ctxItem('link', offline ? 'WorkBuddy · 未连接' : 'WorkBuddy · 已连接',
-                 offline ? '点击连接' : '点击断开');
+    /* 实时源的连接开关已经搬到树图右栏那一列 —— 它管的是「某个源」，
+       而右键管的是「这一层能做什么」，两件事不该混在一个菜单里。 */
     h += srcRows();
     ctxEl.innerHTML = h;
     ctxEl.className = 'on';
@@ -4876,13 +5501,37 @@
     /* 空白处不写「无」—— 「无」是在说结果（这一行没有名字），
        用户需要的是下一步做什么（去右击一个真正的名字）。所以改成指路。 */
     h += ctxItem('copyname', '复制名称', name ? '' : '请右击名称', name ? '' : 'off');
+
+    /* ---- 这一行在磁盘上的身份，两种来源先算清楚，下面几项共用 ----
+       ① 自带身份（sid / rel / wid / disk）：会话行、工作区行、磁盘树行。
+       ② 结构树里的**文件**：它自己什么身份都没有 —— 一棵 25 万文件的树
+          不可能给每个文件下发绝对路径（多出几十 MB，而且前端拿到绝对路径
+          就等于拿到「打开任意文件」的开关）。但库记着扫描根，所以
+          「哪个库 + 库内相对路径」足够定位，绝对路径由服务端现场拼
+          （见 resolve_reveal 的 src + in 分支，拼完还要验一次没越出库根）。 */
+    var isDisk = (side === 'disk');
+    var trv = node && (node.sid || node.rel || node.wid || node.disk);
+    var srcNode = srcNodeOfKey(key);
+    var libKey = (srcNode && srcNode.wid) ? String(srcNode.wid) : '';
+    /* ⚠️ 这里必须看**这一行自己的节点**（treeNodeMap[key]），不能用传进来的 node。
+       传进来的那个是「就近有磁盘身份的那一颗」—— 扫描树里每一行往上找都会落到
+       源那一行（宽 wid = 库 key），于是每个文件、每个文件夹都被当成「有磁盘位置」，
+       点下去只会去找库根。行自己是什么，只能问它自己。 */
+    var self = key ? treeNodeMap[key] : null;
+    var nodeKind = self && self.kind;
+    var libIn = ((nodeKind === 'file' || nodeKind === 'dir')
+                 && libKey && srcNode.ref === 'ok') ? relInLib(key) : '';
+    ctxTree.libKey = libKey;
+    ctxTree.libIn = libIn;
+    ctxTree.isDir = (nodeKind === 'dir');
+    /* 雨图和树图共用一份「这一行在库里是谁」，ctxAct 只认这一个 */
+    ctxLib = libIn ? { key: libKey, rel: libIn, isDir: (nodeKind === 'dir') } : null;
+
     /* 复制路径分两种含义，跟着栏走：
          左栏（磁盘视图）→ 物理路径，我要自己去 C 盘找它
          右栏（资料库视图）→ 层级地址「工作区 › 会话」，让 WorkBuddy 自己去定位
        两个是不同的问题，所以副标题直接写出来，不让人猜。 */
-    var isDisk = (side === 'disk');
-    var trv = node && (node.sid || node.rel || node.wid || node.disk);
-    var canCopy = isDisk ? !!trv : !!p;
+    var canCopy = isDisk ? !!(trv || libIn) : !!p;
     h += ctxItem('copypath', '复制路径',
                  isDisk ? '磁盘路径' : '工作区路径',
                  canCopy ? '' : 'off');
@@ -4892,9 +5541,21 @@
        两个「打开」按栏分工：左栏是这个东西在硬盘哪儿，右栏是它属于哪个项目。
        会话行自己没有 wid，往上借所属工作区的（wsWidOfKey）。 */
     if (isDisk){
-      h += ctxItem('reveal', '在资源管理器中打开',
-                   trv ? '磁盘位置' : '虚拟层没有磁盘位置',
-                   trv ? '' : 'off');
+      if (libIn){
+        if (ctxTree.isDir){
+          /* 文件夹：一点就进那个目录（后端的 isdir 分支走 explorer <path>） */
+          h += ctxItem('reveal', '在资源管理器中打开', '这个文件夹');
+        } else {
+          /* 文件给两项：打开（默认程序，等于双击）和定位（在资源管理器中选中）。
+             两件事不一样 —— 打开是「看内容」，定位是「我要把它拖到别处」。 */
+          h += ctxItem('openfile', '打开文件', '用默认程序');
+          h += ctxItem('reveal', '在资源管理器中定位', '选中这个文件');
+        }
+      } else {
+        h += ctxItem('reveal', '在资源管理器中打开',
+                     trv ? '磁盘位置' : '虚拟层没有磁盘位置',
+                     trv ? '' : 'off');
+      }
     } else {
       var wsw = wsWidOfKey(key);
       h += ctxItem('openws', '在工作空间中打开',
@@ -4902,8 +5563,6 @@
                    wsw ? '' : 'off');
     }
     h += '<hr>';
-    h += ctxItem('link', offline ? '实时' : '离线',
-                 offline ? '重新连接 WorkBuddy' : '断开 WorkBuddy');
     h += srcRows();
     ctxEl.innerHTML = h;
     ctxEl.className = 'on';
@@ -4925,11 +5584,54 @@
     return out.join(' › ');
   }
 
+  /* 这一行所在的那个「源」（kind=src）本身。查两件事：
+     它是哪个库（wid），以及它记没记住扫描根（ref，见 build_columns 的 link_fields）。 */
+  function srcNodeOfKey(key){
+    if (!key) return null;
+    var segs = key.split('/'), acc = '', i, n;
+    for (i = 0; i < segs.length; i++){
+      acc = i ? acc + '/' + segs[i] : segs[i];
+      n = treeNodeMap[acc];
+      if (n && n.kind === 'src') return n;
+    }
+    return null;
+  }
+
+  /* 结构树里这个文件的**库内相对路径**（`src\api\main.py` 里的 `src/api/main.py`）。
+     和 treePath 只差一个分隔符：那条给人看（用 ›），这条要交给后端拼磁盘路径（用 /）。
+     命名里那层「库名」不算进来 —— 库根就是扫描的那个目录本身。 */
+  function relInLib(key){
+    if (!key) return '';
+    var segs = key.split('/'), acc = '', out = [], i, n;
+    for (i = 0; i < segs.length; i++){
+      acc = i ? acc + '/' + segs[i] : segs[i];
+      n = treeNodeMap[acc];
+      if (n && n.name && n.kind !== 'root' && n.kind !== 'src') out.push(n.name);
+    }
+    return out.join('/');
+  }
+
+  /* 雨图版的同一个东西：path 是钻取链（path[0] 是根），珠子是链尾那一层的孩子。
+     少算两样：根（表标题）和源那一行（它的名字是库名，不在磁盘路径里）。 */
+  function libRelOfBean(bean){
+    if (!bean || !bean.node || !bean.node.name) return '';
+    var out = [], i, n;
+    /* 从 1 开始：path[0] 永远是这一屏的根（库本身），库名不在磁盘路径里。
+       这里不靠 kind 判断 —— 树图那边的根节点 kind 是 'root'，雨图这边拿到的是
+       另一份包装，kind 不一定一样；位置比标记更可靠。 */
+    for (i = 1; i < path.length; i++){
+      n = path[i];
+      if (n && n.name && n.kind !== 'root' && n.kind !== 'src') out.push(n.name);
+    }
+    out.push(bean.node.name);
+    return out.join('/');
+  }
+
   function hideCtx(){
-    closeSub();
     ctxEl.className = '';
     ctxBean = null;
     ctxTree = null;
+    ctxLib = null;
   }
 
   function ctxAct(act){
@@ -4953,7 +5655,16 @@
       /* 只剩树图在用。磁盘视图给物理路径（我去找它），
          资料库视图给层级地址（WorkBuddy 去找它）。 */
       if (ctxTree){
-        if (ctxTree.side === 'disk' || !ctxTree.path){
+        if (ctxTree.libIn){
+          /* 结构树里的文件：前端手里没有绝对路径，让它问服务端要（dry，不弹窗） */
+          fetch('/api/reveal', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ src: ctxTree.libKey, in: ctxTree.libIn, dry: true })
+          }).then(function(r){ return r.json(); }).then(function(d){
+            if (!d || !d.ok){ flashTip((d && d.reason) || '拿不到路径'); return; }
+            copyTextAsync(d.path, function(ok){ flashTip(ok ? '已复制路径' : '复制失败'); });
+          }).catch(function(){ flashTip('拿不到路径'); });
+        } else if (ctxTree.side === 'disk' || !ctxTree.path){
           copyDiskPath(ctxTree.node);
         } else if (copyText(ctxTree.path)){
           flashTip('已复制路径');
@@ -4966,181 +5677,263 @@
       if (!wswid){ flashTip('这一层不属于任何工作区'); return; }
       revealNode({ wid: wswid });
     } else if (act === 'reveal'){
-      revealNode(ctxTree ? ctxTree.node : diskOwnerOfBean(b));
+      /* 扫描库里的文件/文件夹走「库 + 库内相对路径」，其余走身份（sid/rel/wid/disk）。
+         两条路后端都能认，前端只挑一条最简单的说出来。 */
+      if (ctxLib && ctxLib.rel) revealInLib(ctxLib.key, ctxLib.rel, false);
+      else revealNode(ctxTree ? ctxTree.node : diskOwnerOfBean(b));
+    } else if (act === 'openfile'){
+      if (ctxLib && ctxLib.rel) revealInLib(ctxLib.key, ctxLib.rel, true);
     } else if (act === 'tune'){
       openTune();
-    } else if (act === 'link'){
-      setLink(!offline);
-    } else if (act === 'addsrc'){
-      openSrcSub();
-      return;                    /* 不关菜单：原地展开二级 */
     } else if (act === 'addsrc-file'){
       pickSourceFile();
-    } else if (act === 'addsrc-dir'){
-      pickSourceDir();
+    } else if (act === 'scandir'){
+      scanDir();
     }
     hideCtx();
   }
 
-  /* 「新增数据源」的二级菜单：文件和文件夹是两条不同的路径，
-     塞进一次系统对话框做不到（同一个 input 不能同时选两者）。
-     所以父项不直接弹文件框，而是在它右侧展开这一层 ——
-     两个选项同时可见，用户挑一个，不会先被系统的「打开」框锁死。 */
-  var subTimer = 0;
-
-  function subKeep(){
-    if (subTimer){ clearTimeout(subTimer); subTimer = 0; }
-  }
-  function subLater(ms){
-    subKeep();
-    subTimer = setTimeout(function(){ subTimer = 0; closeSub(); }, ms);
-  }
-
-  function openSrcSub(){
-    var it = ctxEl.querySelector('i.sub');
-    if (!it){ return; }
-    subKeep();
-    /* 每次都重建：两个选项的说明跟着当前模式走（雨图/树图不共用一套措辞） */
-    ctx2El.innerHTML =
-      ctxItem('addsrc-file', '选一个 CSV 文件', '导入成一个库') +
-      ctxItem('addsrc-dir', '选一个文件夹', '目录结构就是树');
-    ctx2El.className = 'on';
-
-    /* 贴边翻转：默认开在父项右侧，右边界不够就翻到左侧；
-       纵向把二级的第一个选项对齐父项的第一个选项（父菜单内边距 5 + 描边 1 = 6）。
-       两个面板之间留 -1px 的重叠，接缝看上去是一张纸折出来的两层。 */
-    var r = it.getBoundingClientRect();
-    var w = ctx2El.offsetWidth, hh = ctx2El.offsetHeight;
-    var left = r.right - 1;
-    var top = r.top - 6;
-    if (left + w > window.innerWidth - 8) left = r.left - w + 1;
-    if (top + hh > window.innerHeight - 8) top = window.innerHeight - 8 - hh;
-    if (left < 8) left = 8;
-    if (top < 8) top = 8;
-    ctx2El.style.left = left + 'px';
-    ctx2El.style.top = top + 'px';
-
-    it.className = 'sub open';       /* 父项保持高亮，指出这一层从哪儿来 */
-  }
-
-  function closeSub(){
-    subKeep();
-    if (!ctx2El.className) return;
-    ctx2El.className = '';
-    var it = ctxEl.querySelector('i.sub');
-    if (it) it.className = 'sub';
-  }
-
-  /* 实时 / 离线：离线就把 WorkBuddy 的数据源掐掉，画面停在当前这一帧；
-     切回实时立刻强制拉一次，不用等到下一轮轮询。 */
-  function setLink(toOffline){
-    offline = !!toOffline;
-    if (offline){
-      setLive('默认数据', false);
-    } else {
+  /* 连接 / 断开**某一个**实时源。只影响「要不要跟着它变」，不碰任何数据。
+     断开期间这个源不再检查有没有新内容；接回来立刻强制拉一次，
+     不用等到下一个 1.5 秒。 */
+  function setLink(key, on){
+    if (!key) return;
+    if (on) delete liveOff[key];
+    else liveOff[key] = true;
+    if (!curOff()){
       liveSeq = -1;
       liveFail = 0;
-      livePull();          /* 立刻补一次，setLive 会把「离线」前缀一起去掉 */
+      livePull();
     }
+    /* 状态格只报「连/断」：刚断开的这一刻统计还是旧的，写上去等于撒谎，
+       等下一轮 livePull 自然会把真实数字填回来。 */
+    setLive('', false);
+    drawTrees();                 /* 右栏那个点要立刻跟着变 */
   }
 
 
-  /* ============ 新增数据源：选一个 CSV → 导入 → 立刻切过去 ============ */
-  var srcPick = null, srcDirPick = null;
-
+  /* ============ 新增数据源 · 文件 ============
+     语义是**链接**，不是拷贝：选中的那个文件就是数据源本身。
+       CSV      → 直接读原文件（改了原文件，点 ↻ 立刻看到）
+       JSON/MD/OPML → 解析成结构树落一份，但记住原路径，↻ 重新解析
+     为什么必须走服务端的系统文件框：浏览器只会给一个 File 对象，
+     **永远不告诉你它在哪个目录** —— 没有路径就没有「重读」这件事。
+     （这条以前不懂，用浏览器读文件，做出来的是永远不能刷新的快照。） */
+  var pickingFile = false;
   function pickSourceFile(){
-    if (!srcPick){
-      srcPick = document.createElement('input');
-      srcPick.type = 'file';
-      srcPick.accept = '.csv,text/csv';
-      srcPick.style.display = 'none';
-      document.body.appendChild(srcPick);
-      srcPick.addEventListener('change', function(){
-        var f = srcPick.files && srcPick.files[0];
-        if (f) uploadSource(f);
-        srcPick.value = '';          /* 清掉，选同一个文件两次也要能触发 */
-      });
-    }
-    srcPick.click();
-  }
-
-  /* 整个文件夹：里面每个 .csv 各自成为一个库，不合并 ——
-     合并会把「订单履约」「Hello World」这类互不相干的东西塞进同一棵树，没法读。 */
-  /* ============ 新增数据源 · 文件夹：导入「结构」，不导入内容 ============
-     一个文件夹本身就是一棵树 —— 目录是父，文件是叶。
-     所以只把「相对路径 + 字节数」发上去，不读任何文件内容。
-     几千个文件也就几百 KB，而且永远看不到文件里写了什么。 */
-  var srcDirPick = null;
-  var DIR_MAX = 20000;        /* 再多就不是「看结构」，是在导整块硬盘 */
-
-  function pickSourceDir(){
-    if (!srcDirPick){
-      srcDirPick = document.createElement('input');
-      srcDirPick.type = 'file';
-      srcDirPick.setAttribute('webkitdirectory', '');
-      srcDirPick.setAttribute('directory', '');
-      srcDirPick.multiple = true;
-      srcDirPick.style.display = 'none';
-      document.body.appendChild(srcDirPick);
-      srcDirPick.addEventListener('change', function(){
-        var fs = srcDirPick.files || [], list = [], i, cut = false;
-        var rootName = '', prefix = '';
-        for (i = 0; i < fs.length; i++){
-          var p = fs[i].webkitRelativePath || fs[i].name;
-          var seg = p.split('/');
-          /* 浏览器给的相对路径第一段就是选中的那个文件夹名，
-             根节点已经叫这个名字了，别重复一层 */
-          if (!rootName && seg.length > 1){ rootName = seg[0]; prefix = seg[0] + '/'; }
-          if (list.length >= DIR_MAX){ cut = true; break; }
-          list.push([p.indexOf(prefix) === 0 ? p.slice(prefix.length) : p, fs[i].size || 0]);
-        }
-        srcDirPick.value = '';
-        if (!list.length){ flashTip('这个文件夹里没有文件'); return; }
-        importTree(rootName || '结构树', list, cut);
-      });
-    }
-    srcDirPick.click();
-  }
-
-  function importTree(name, files, cut){
-    flashTip('正在读结构 · ' + files.length + ' 个文件…');
-    fetch('/api/source/tree', {
+    if (pickingFile) return;
+    pickingFile = true;
+    var last = '';
+    try { last = localStorage.getItem('rd.pickFile') || ''; } catch(e){}
+    flashTip('在系统窗口里选一个文件…');
+    fetch('/api/pick/file', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, files: files })
+      body: JSON.stringify({ start: last })
     })
       .then(function(r){ return r.json(); })
       .then(function(d){
-        if (!d || !d.ok){ flashTip('导入失败：' + ((d && d.error) || '未知错误')); return; }
-        flashTip('已导入 ' + d.files + ' 个文件' + (cut ? '（超出上限，只取了前面一部分）' : ''));
+        pickingFile = false;
+        if (d && d.ok){
+          if (!d.path){ flashTip('没选文件'); return; }
+          addFile(d.path);
+          return;
+        }
+        askFilePath(last, (d && d.error) || '');
+      })
+      .catch(function(){ pickingFile = false; askFilePath(last, ''); });
+  }
+  /* 手填兜底：系统框弹不出来时才走这儿（非 Windows / 被安全软件拦） */
+  function askFilePath(last, why){
+    var p = window.prompt((why ? why + '\n\n' : '') +
+      '要导入哪个文件？填完整路径\n支持 .csv / .json / .md / .opml', last || '');
+    if (p === null) return;
+    p = p.trim();
+    if (!p){ flashTip('没填路径'); return; }
+    addFile(p);
+  }
+  function addFile(p){
+    try { localStorage.setItem('rd.pickFile', p); } catch(e){}
+    flashTip('正在读文件 · ' + p);
+    fetch('/api/source/addfile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: p })
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d || !d.ok){ flashTip((d && d.error) || '导入失败'); return; }
         switchSource(d.key);
-        colsRefresh();               /* 两栏同时多一行，不用等切到树图 */
+        colsRefresh();             /* 左栏多一个地址，右栏多一个库 */
+        flashTip('已链接 ' + (d.label || '') + (d.files ? ' · ' + d.files + ' 项' : ''));
       })
       .catch(function(e){ flashTip('导入失败：' + e.message); });
   }
 
-  function uploadSource(file){
-    var rd = new FileReader();
-    rd.onload = function(){
-      fetch('/api/source/add?name=' + encodeURIComponent(file.name), {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/csv; charset=utf-8' },
-        body: rd.result
+  /* 相对时间。库里的清单是**快照**，不写多旧，用户就会拿它当实时数据用 ——
+     这是这个工具最容易骗人的地方，比刷新慢严重得多。 */
+  function agoText(ts){
+    if (!ts) return '';
+    var d = Math.floor(Date.now() / 1000) - ts;
+    if (d < 0) return '刚刚';
+    if (d < 60) return '刚刚';
+    if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+    if (d < 86400) return Math.floor(d / 3600) + ' 小时前';
+    if (d < 86400 * 30) return Math.floor(d / 86400) + ' 天前';
+    if (d < 86400 * 365) return Math.floor(d / 86400 / 30) + ' 个月前';
+    return Math.floor(d / 86400 / 365) + ' 年前';
+  }
+
+  /* 千分位：25 万写成 250,000，扫盘时数字一直在跳，没有分隔符看不清量级 */
+  function fmtN(n){
+    n = Math.round(n || 0);
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  /* 扫磁盘目录：浏览器枚举文件夹是整条链路里最慢的一环 ——
+     webkitdirectory 要为每个文件造一个 File 对象，20 万文件几十秒，
+     而且全程 JS 拿不到任何信号（change 要等枚举结束才触发），
+     页面连「正在读…」都刷不出来，看起来就是死机。
+
+     这条路改由服务端扫盘：os.scandir 在 Windows 上文件名和大小
+     一次就拿到，实测 8~13 万文件/秒，任务还放在后台线程里，
+     前端每 300ms 问一次进度 —— 扫 100 万文件也不冻界面。 */
+  /* 选目录是「点一下」，不是「打一行字」。
+     浏览器永远拿不到绝对路径（<input webkitdirectory> 只给相对名），
+     所以这个框由服务端弹（/api/pick/dir → Windows 原生「浏览文件夹」）。
+     只有它弹不出来时（非 Windows / 系统拒绝）才退回手填 —— 兜底要留，
+     但不能是默认。 */
+  var pickingDir = false;
+  function scanDir(){
+    if (pickingDir) return;              /* 连点两下别开两个框 */
+    pickingDir = true;
+    var last = '';
+    try { last = localStorage.getItem('rd.scanDir') || ''; } catch(e){}
+    flashTip('在系统窗口里选一个文件夹…');
+    fetch('/api/pick/dir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start: last })
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        pickingDir = false;
+        if (d && d.ok){
+          if (!d.path){ flashTip('没选目录'); return; }   /* 点了取消，安静收场 */
+          scanPath(d.path);
+          return;
+        }
+        askScanPath(last, (d && d.error) || '');
       })
-        .then(function(r){ return r.json(); })
-        .then(function(d){
-          if (d && d.ok){
-            switchSource(d.key);
-            colsRefresh();           /* 左栏多一个地址，右栏多一个库 */
-            flashTip('已导入 ' + (d.label || file.name));
-          } else {
-            flashTip((d && d.error) || '导入失败');
+      .catch(function(){ pickingDir = false; askScanPath(last, ''); });
+  }
+  /* 手填兜底：框弹不出来时才走这儿，输入框里预填上次的路径 */
+  function askScanPath(last, why){
+    var p = window.prompt((why ? why + '\n\n' : '') +
+      '要扫描哪个目录？填绝对路径\n比如 D:\\ 或 D:\\项目\\某个文件夹', last || '');
+    if (p === null) return;                  /* 取消 */
+    p = p.trim();
+    if (!p){ flashTip('没填路径'); return; }
+    scanPath(p);
+  }
+  function scanPath(p){
+    try { localStorage.setItem('rd.scanDir', p); } catch(e){}
+    flashTip('正在启动扫描 · ' + p);
+    fetch('/api/source/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: p })
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d || !d.ok){ flashTip('扫描失败：' + ((d && d.error) || '未知错误')); return; }
+        pollScan(d.job, 'new');
+      })
+      .catch(function(e){ flashTip('扫描失败：' + e.message); });
+  }
+
+  /* 重读一个库。**前端不再判断这个库是什么类型**：
+     目录库去重扫、文件库去重解析、CSV 读原文件，全由 /api/source/reload 决定。
+     以前这里写死"扫描"，于是文件库点了 ↻ 只会收到一句"没记住原路径"。 */
+  function reloadSource(key){
+    refreshingKey = key;          /* 先让那一行进入「进行中」状态，再发请求 */
+    drawTrees();
+    flashTip('正在重读这个库…');
+    fetch('/api/source/reload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key })
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        /* 服务端的 error 都是完整的一句话（「原文件不在了…」），
+           前面再套「重读失败：」反而把有用的信息挤到后面去了 */
+        if (!d || !d.ok){ refreshingKey = ''; drawTrees(); flashTip((d && d.error) || '重读失败'); return; }
+        if (d.job){ pollScan(d.job, 'refresh'); return; }   /* 目录：要等扫完 */
+        /* 文件 / CSV：服务端已经读完了，直接重画两栏和雨图 */
+        refreshingKey = '';
+        colsRefresh();
+        if (!SOURCE || SOURCE === key){ liveSeq = -1; livePull(); }
+      })
+      .catch(function(e){ refreshingKey = ''; drawTrees(); flashTip('重读失败：' + e.message); });
+  }
+
+  /* mode: '' = 新扫一个目录（扫完切过去）；'refresh' = 重读已有库（扫完留在原地） */
+  function pollScan(job, mode){
+    var refreshing = (mode === 'refresh');
+    var verb = refreshing ? '重读' : '扫描';
+    fetch('/api/source/scan?job=' + encodeURIComponent(job || ''))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d) return;
+        if (d.state === 'running'){
+          flashTip('正在' + verb + ' · 已找到 ' + fmtN(d.n) + ' 个文件 · ' +
+                   fmtN(d.dirs) + ' 个目录');
+          if (refreshing){
+            /* 只动那一行的数字，**不重画**：整块 innerHTML 重建会把 CSS 动画打断。
+               行的 data-addr 是 encodeURIComponent(wid)，直接拼选择器容易差一个编码，
+               所以遍历比对，不赌字符串拼得对。找不到就算了（比如已经切走）。
+               两栏都要扫：连接格搬到了左栏，但数字两栏都有一份，只更右栏会让左栏
+               一直停在旧数上 —— 同一个库在一屏里报两个文件数，是最难解释的错。 */
+            var want = encodeURIComponent(refreshingKey);
+            var boxes = [tbdEl, tbmEl], bi, ri, rows;
+            for (bi = 0; bi < boxes.length; bi++){
+              rows = boxes[bi] ? boxes[bi].querySelectorAll('.trow') : [];
+              for (ri = 0; ri < rows.length; ri++){
+                if (rows[ri].getAttribute('data-addr') !== want) continue;
+                var tmx = rows[ri].querySelector('.tm');
+                if (tmx) tmx.textContent = '已找到 ' + fmtN(d.n) + ' 个文件';
+              }
+            }
           }
-        })
-        .catch(function(){ flashTip('导入失败'); });
-    };
-    rd.onerror = function(){ flashTip('这个文件读不了'); };
-    rd.readAsText(file, 'utf-8');
+          setTimeout(function(){ pollScan(job, mode); }, 300);
+          return;
+        }
+        if (d.state === 'error' || d.state !== 'done'){
+          refreshingKey = '';
+          drawTrees();
+          flashTip(d.state === 'error' ? (verb + '失败：' + (d.error || '未知'))
+                                       : (verb + '没有完成，再试一次'));
+          return;
+        }
+        flashTip('已' + verb + ' ' + fmtN(d.n) + ' 个文件 · ' + d.secs + ' 秒' +
+                 (d.cut ? '（到上限，只取了前面一部分）' : ''));
+        if (refreshing){
+          refreshingKey = '';
+          colsRefresh();                 /* 左右两栏重建：数字和「上次扫描时间」都变了 */
+          /* 正看着这个库：雨图也刷一次，否则圆的大小还按旧数据画 */
+          if (!SOURCE || SOURCE === d.key){
+            liveSeq = -1;
+            livePull();
+          }
+          return;
+        }
+        switchSource(d.key);
+        colsRefresh();                   /* 两栏同时多一行，不用等切到树图 */
+      })
+      .catch(function(){                 /* 网络抖一下不算失败，接着问 */
+        setTimeout(function(){ pollScan(job, mode); }, 900);
+      });
   }
 
   /* 换数据源 = 换了一整棵树。焦点、下钻路径、增量游标全要重来，
@@ -5148,7 +5941,7 @@
   function switchSource(key){
     /* 允许传空串：空 = 回到顶级目录（Raindrop Chart）。 */
     SOURCE = key || '';
-    offline = false;
+    /* 不再重置离线状态：开关是按源记的，切到别的源不该把它悄悄接回来 */
     path = [];
     openGroups = {};
     liveSeq = -1;
@@ -5269,6 +6062,13 @@
       return;
     }
     if (b.group){
+      /* 大组不许摊开：摊开的代价是把成员全塞进同一层再跑一次布局，
+         而布局是 O(n²)。D 盘那种 4000 多项的「其余」一摊就是十几秒白屏。
+         与其卡死，不如明说摊不开 —— 想找具体那一项，往上收一层或者用搜索。 */
+      if (b.group.length > 220 && !openGroups[b.key]){
+        flashTip('这一组 ' + b.group.length + ' 项，摊开看不清；换个更小的层再看');
+        return;
+      }
       if (openGroups[b.key]) delete openGroups[b.key];
       else openGroups[b.key] = true;
       sync();
@@ -5298,12 +6098,36 @@
       });
       return;
     }
+    if (b.node.lazy && b.node.lid){
+      loadLazyKids(b.node, function(){
+        path.push(b.node);
+        expanded = true;
+        openGroups = {};
+        drawCrumb();
+        sync();
+        spawnRipple(CX, CY, R0() * 0.8, 0.9);
+      });
+      return;
+    }
     if (b.node.children && b.node.children.length){
       path.push(b.node);
       expanded = true;
       openGroups = {};
       drawCrumb();
       sync();
+      return;
+    }
+    /* 文件珠子：它是叶子，进不去下一层 —— 以前点它什么都不发生，看起来像坏了。
+       它唯一说得通的「点一下」就是打开（和右键 → 打开文件同一件事）。
+       可执行文件不在这里放行，由后端拦（见 /api/reveal 的 run 分支）。 */
+    if (b.node.kind === 'file'){
+      var frel = libRelOfBean(b);
+      var fknown = SRC_REF[SOURCE];
+      if (frel && SOURCE && SOURCE.indexOf('tree-') === 0 && (!fknown || fknown === 'ok')){
+        revealInLib(SOURCE, frel, true);
+      } else {
+        flashTip('这个文件没有磁盘位置（早期导入的库）');
+      }
     }
   }
 
@@ -5428,30 +6252,6 @@
     ctxAct(el.getAttribute('data-act'));
   });
 
-  /* 二级菜单的悬停：指向「新增数据源」就展开，指向别的项就收起 ——
-     和系统菜单一样，不用先点一次才知道里面有什么。 */
-  ctxEl.addEventListener('mouseover', function(e){
-    var it = ctxEl.querySelector('i.sub');
-    if (it && it.contains(e.target)){ openSrcSub(); return; }
-    closeSub();
-  });
-  /* 离开父菜单不立刻收：指针要斜着穿过接缝才能落到二级上，
-     留 200ms 给它走这一段，否则总是差半帧、点不中。 */
-  ctxEl.addEventListener('mouseleave', function(){ subLater(200); });
-
-  /* 二级自己的点击：和父菜单同一套派发（off 项不响应） */
-  ctx2El.addEventListener('mousedown', function(e){
-    e.preventDefault();
-    e.stopPropagation();
-    var el = e.target;
-    while (el && el !== ctx2El && el.tagName !== 'I') el = el.parentNode;
-    if (!el || el === ctx2El) return;
-    if ((el.className || '').indexOf('off') >= 0) return;
-    ctxAct(el.getAttribute('data-act'));
-  });
-  ctx2El.addEventListener('mouseenter', subKeep);
-  ctx2El.addEventListener('mouseleave', function(){ subLater(120); });
-
   /* 拖调参面板：跟着指针走，四边留 8px 不让它跑出屏幕 */
   window.addEventListener('mousemove', function(e){
     if (!tuneDrag) return;
@@ -5469,7 +6269,7 @@
   });
 
   document.addEventListener('mousedown', function(e){
-    if (ctxEl.className && !ctxEl.contains(e.target) && !ctx2El.contains(e.target)) hideCtx();
+    if (ctxEl.className && !ctxEl.contains(e.target)) hideCtx();
     /* 调参面板：点空白处收起，但点菜单里的「调参」不算（那一层已经 stopPropagation） */
     if (tuneEl && tuneEl.className && !tuneEl.contains(e.target)) closeTune(false);
   });
@@ -5567,7 +6367,7 @@
     qxEl.addEventListener('click', function(e){
       e.stopPropagation();
       qEl.value = '';
-      qList.className = '';
+      qHide();
       qList.__hits = null;
       qEl.focus();
     });
@@ -5576,7 +6376,7 @@
       qTimer = setTimeout(qRun, 130);
     });
     qEl.addEventListener('keydown', function(e){
-      if (e.key === 'Escape'){ qEl.value = ''; qList.className = ''; adBlur(); }
+      if (e.key === 'Escape'){ qEl.value = ''; qHide(); adBlur(); }
       if (e.key === 'Enter' && qList.__hits && qList.__hits.length) qJump(qList.__hits[0]);
     });
     /* 下拉里按下鼠标时不要先失焦，否则列表先被清空、点击落空 */

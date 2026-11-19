@@ -42,8 +42,10 @@ import time
 import shutil
 import json
 import hashlib
+import datetime
 
 import paths
+import weights as WT
 
 # 软件本体目录。示例 CSV 这类「随程序走」的东西挂在这里。
 HERE = paths.CODE
@@ -55,6 +57,9 @@ class Source(object):
     key = ""
     label = ""
     hint = ""
+    # 这个源在磁盘上的入口（给人看的地址），树图左栏拿它当第一行。
+    # 留空 = 不是「目录里的一堆记录」这种形态（比如单文件 CSV）。
+    disk_label = ""
     # 内置示例（Hello World）。它只在「一个真库都没有」时露面 ——
     # 没有它，别人第一次打开会是白屏；有了它又跟真库一起计数，
     # 会让人以为软件自带一个用得上的库。见 list_sources()。
@@ -342,6 +347,9 @@ def _sum_w(kids):
 #  路径用 / 分隔，第一段不要重复根名。
 # ==================================================================
 
+TREE_LID_PREFIX = "tree:"
+
+
 class TreeSource(Source):
     key = "tree"
     label = "结构树"
@@ -350,6 +358,9 @@ class TreeSource(Source):
     def __init__(self, path=None, key=None, label=None):
         self.path = path
         self._data = None
+        self._data_stamp = None
+        self._idx = None
+        self._idx_stamp = None
         if key:
             self.key = key
         if label:
@@ -357,7 +368,15 @@ class TreeSource(Source):
             self.hint = label
 
     def _data_of(self):
-        if self._data is not None:
+        # 按 mtime+size 失效：文件被重新导入覆盖后要读到新的，
+        # 不然界面还挂着上一版的结构（25 万行的文件读一次 1 秒，不能每次都读）
+        stamp = None
+        try:
+            st = os.stat(self.path)
+            stamp = (st.st_mtime, st.st_size)
+        except Exception:
+            pass
+        if self._data is not None and self._data_stamp == stamp:
             return self._data
         self._data = {"name": self.label or "结构树", "files": []}
         if self.path and os.path.exists(self.path):
@@ -366,15 +385,43 @@ class TreeSource(Source):
                     self._data = json.load(fh)
             except Exception:
                 pass
+        self._data_stamp = stamp
+        self._idx = None            # 数据换了，索引跟着作废
         return self._data
 
-    def root(self):
-        d = self._data_of()
-        root_node = {"kind": "root", "name": d.get("name") or self.label,
-                     "children": [], "value": 0.0}
-        index = {"": root_node}
+    @property
+    def src_path(self):
+        """这份快照是从哪个目录扫来的。空串 = 不知道（浏览器导入的拿不到绝对路径）。
 
-        for item in (d.get("files") or []):
+        有了它才能「重扫」：库里的文件是快照，原目录后来加的东西它永远不会知道，
+        除非有人拿着这个路径再走一遍。
+        """
+        try:
+            return str(self._data_of().get("src") or "")
+        except Exception:
+            return ""
+
+    @property
+    def scanned_at(self):
+        """上次扫描的 Unix 秒。0 = 老数据，没记过。"""
+        try:
+            return int(self._data_of().get("at") or 0)
+        except Exception:
+            return 0
+
+    # ---- 索引：一次扫全量，按「父路径」分组 ------------------------------
+    # 为什么要有这一层：D 盘那种几十万个文件的目录，如果每点开一层都从头
+    # 扫一遍文件清单，点一次等 0.2 秒、点十次等两秒。建一次索引（约 1 秒）
+    # 之后每层都是 O(1) 查表，之后一直吃缓存，直到文件 mtime 变。
+    def _index(self):
+        self._data_of()             # 顺带保证 _data 是新的（它会清索引）
+        if self._idx is not None:
+            return self._idx
+
+        agg = {}       # 路径 -> 子树总字节
+        kids = {}      # 父路径 -> {子名: 是不是目录}
+        seen = set()
+        for item in (self._data.get("files") or []):
             if isinstance(item, (list, tuple)):
                 raw, size = item[0], (item[1] if len(item) > 1 else 0)
             elif isinstance(item, dict):
@@ -389,26 +436,70 @@ class TreeSource(Source):
                 size = float(size or 0)
             except (TypeError, ValueError):
                 size = 0.0
-            parent_p = "/".join(parts[:-1])
-            name = parts[-1]
-            parent_node = index.get(parent_p)
-            if parent_node is None:
-                parent_node = _ensure_path(index, root_node, parent_p)
-            full = (parent_p + "/" + name).strip("/")
-            if full in index:
-                continue                      # 同一路径出现两次 = 忽略后者
-            node = {"kind": "file", "name": name, "children": [],
-                    "value": max(0.0, size), "size": max(0.0, size),
-                    "hint": parent_p}
-            index[full] = node
-            parent_node["children"].append(node)
+            full = "/".join(parts)
+            if full in seen:
+                continue            # 同一路径出现两次 = 忽略后者（和以前一致）
+            seen.add(full)
 
-        _weigh_bytes(root_node)
-        _sort_deep(root_node)
-        return root_node
+            acc = ""
+            for i, seg in enumerate(parts):
+                parent = acc
+                acc = (acc + "/" + seg).strip("/")
+                kids.setdefault(parent, {})[seg] = (i < len(parts) - 1)
+                agg[acc] = agg.get(acc, 0.0) + size
+
+        self._idx = (agg, kids)
+        return self._idx
+
+    def _node(self, parent, name, is_dir, agg, kids):
+        path = (parent + "/" + name).strip("/")
+        total = max(0.0, agg.get(path, 0.0))
+        if is_dir:
+            # 目录：子树总字节决定大小；子节点等点开才加载（lazy）
+            return {"kind": "dir", "name": name, "children": [],
+                    "value": total, "size": total,
+                    "lazy": True, "lid": TREE_LID_PREFIX + self.key + "/" + path,
+                    "w": 100.0 * max(1.0, total) ** 0.42}
+        return {"kind": "file", "name": name, "value": total, "size": total,
+                "w": (100.0 * total ** 0.35) if total > 0 else 12.0}
+
+    def _layer(self, parent, agg, kids):
+        items = [self._node(parent, n, is_dir, agg, kids)
+                 for n, is_dir in (kids.get(parent) or {}).items()]
+        items.sort(key=lambda x: (-(x.get("value") or 0), x.get("name") or ""))
+        return items
+
+    def root(self):
+        """只建第一层。深处等点开再加载 —— 这是能装下几十万文件的关键。"""
+        agg, kids = self._index()
+        return {"kind": "root", "name": self._data.get("name") or self.label,
+                "children": self._layer("", agg, kids), "value": 0.0}
+
+    def expand(self, node_id, offset=0, limit=0, tail=False):
+        """懒加载一层。node_id 是「相对根」的目录路径。"""
+        rel = str(node_id or "").strip("/")
+        agg, kids = self._index()
+        if rel not in kids:
+            return None                 # 不是目录（叶子）或路径不存在
+        items = self._layer(rel, agg, kids)
+        total = len(items)
+        if limit and limit > 0:
+            if tail:
+                offset = max(0, total - limit)
+            items = items[offset:offset + limit]
+        tree = {"name": rel.split("/")[-1] if rel else (self.label or "结构树"),
+                "children": items}
+        if limit and limit > 0:
+            tree["_total"] = total
+            tree["_offset"] = offset
+            tree["_limit"] = limit
+        return tree
 
     def summary(self, tree):
-        dirs, files = _count_nodes(tree.get("children") or [])
+        # 懒加载之后 tree 里只有第一层，不能再靠数树节点 —— 统计从索引直接取
+        agg, kids = self._index()
+        dirs = sum(1 for p in kids if p)
+        files = sum(1 for p in agg if p not in kids)
         return {"count": dirs, "countUnit": "目录",
                 "steps": files, "stepUnit": "文件",
                 "leaves": files}
@@ -437,6 +528,575 @@ def _weigh_bytes(n):
 
 
 # ==================================================================
+#  JSON 导入：任意 JSON -> 结构树
+#
+#  为什么在服务端折、而不是新增一个 JsonSource：
+#  折成和「文件夹导入」一样的 {name, files:[[路径, 数值]]} 之后，
+#  TreeSource、扫目录、断开、归档、树图两栏全都照旧 ——
+#  这里只多加一种**入口**，不多一条并行的代码路径。
+#  少一条路径 = 少一处「删一个另一个也消失」那种 bug。
+# ==================================================================
+
+JSON_MAX_ROWS = 20000      # 一行一颗珠子，再多就不是「看图」了
+JSON_MAX_DEPTH = 32        # 防爆栈；正常数据的层级不会接近这个数
+
+
+def _json_rows(obj, path="", depth=0, out=None):
+    """任意 JSON -> [[路径, 数值], ...] 的扁平行。"""
+    if out is None:
+        out = []
+    if len(out) >= JSON_MAX_ROWS:
+        return out
+    if depth > JSON_MAX_DEPTH:
+        out.append([path or "…", 0.0])
+        return out
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            _json_rows(v, (path + "/" + str(k)).strip("/"), depth + 1, out)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, dict):
+                # 数组里的对象：有名字就用名字当这一段的键，没有就用序号。
+                # 不这么做的话 [{"name":"下单"},{"name":"支付"}] 会变成 0/1 两个圆。
+                key = ""
+                for kk in ("name", "title", "id", "key", "label"):
+                    if isinstance(v.get(kk), (str, int)) and str(v.get(kk)).strip():
+                        key = str(v[kk])
+                        break
+                if key:
+                    rest = {k2: v2 for k2, v2 in v.items()
+                            if k2 not in ("name", "title", "id", "key", "label")}
+                    _json_rows(rest, (path + "/" + key).strip("/"), depth + 1, out)
+                    continue
+            _json_rows(v, (path + "/" + str(i)).strip("/"), depth + 1, out)
+    else:
+        val = 0.0
+        if isinstance(obj, bool):
+            val = 1.0 if obj else 0.0
+        elif isinstance(obj, (int, float)):
+            val = float(obj)
+        else:
+            val = 1.0          # 字符串 / null：每项一样大，至少画得出来
+        out.append([path or "value", max(0.0, val)])
+    return out
+
+
+def tree_from_json(obj, fallback="JSON"):
+    """把用户给的 JSON 折成结构树格式。
+
+    认三种形状：
+      1. 已经是结构树 `{name, files:[[路径, 数值]]}` → 原样用
+      2. 嵌套对象 `{"项目":{"阶段A":12}}` → 每层键名是路径的一段
+      3. 数组 `[{"name":"下单","n":41}, ...]` → 有 name 的当节点名
+    叶子数值优先取数字（圆的尺寸才有意义），取不到当 1。
+    """
+    if isinstance(obj, dict) and isinstance(obj.get("files"), list):
+        return {"name": str(obj.get("name") or fallback), "files": obj["files"]}
+
+    name = fallback
+    body = obj
+    if isinstance(obj, dict) and isinstance(obj.get("name"), str) and obj["name"].strip():
+        name = obj["name"].strip()
+        body = {k: v for k, v in obj.items() if k != "name"}
+    return {"name": name, "files": _json_rows(body)}
+
+
+# ==================================================================
+#  数据源四：Claude Code 会话
+#
+#  为什么需要它：上面那个 WorkBuddy 源只在本机装过 WorkBuddy 时才有数据。
+#  别人从 GitHub 下载这个程序，打开看到的是一份示例 CSV —— 核心功能
+#  （看自己「怎么把一件事做完」）等于没用上。Claude Code 把同样的东西写在
+#  ~/.claude/projects/<路径转码>/<会话 uuid>.jsonl 里，一行一个事件，
+#  层级结构和 WorkBuddy 的会话记录同构，所以能接进同一套渲染、前端零改动。
+#
+#  格式（2026-11 与官方文档、几个第三方解析器交叉核对过）：
+#      {"type":"user","uuid":..,"parentUuid":..,"timestamp":"2025-01-15T10:30:45.123Z",
+#       "sessionId":..,"cwd":"/Users/x/proj","message":{"role":"user","content":"帮我写个二分"}}
+#      {"type":"assistant","message":{"content":[
+#            {"type":"text","text":"..."},
+#            {"type":"tool_use","id":"toolu_x","name":"Read","input":{...}}]}}
+#      {"type":"user","message":{"content":[
+#            {"type":"tool_result","tool_use_id":"toolu_x","content":"...","is_error":false}]}}
+#      {"type":"system","subtype":"compact_boundary", ...}
+#
+#  三条判断规则（照格式文档，别自己发明）：
+#    1. 「一条 user 记录」不等于「一个新回合」—— tool_result 也是 user 记录，
+#       装的是工具输出、不是人说的话。把它算成回合，一个会话会凭空多出一倍
+#       没有名字的空回合。
+#    2. tool_result 靠 tool_use_id 与 tool_use 配对，耗时 = 两条记录的时间差。
+#    3. timestamp 是 ISO 8601 字符串，而本程序内部一律用**毫秒整数**
+#       （WorkBuddy 那边就是 ms）。不转换的话 at 全是 0，时间轴塌到原点。
+# ==================================================================
+
+CLAUDE_SID_PREFIX = "claude:"
+CC_INDEX_VER = 1
+
+
+def _cc_projects():
+    """Claude Code 的会话目录。每次现算 —— 不要在 import 期把 HOME 固化进常量。
+
+    RD_CLAUDE_DIR：数据不在默认位置时用（.claude 放同步盘、多账号各一份、
+    或者测试要指到临时目录）。和 paths.resolve_user_dir 的 RD_USER_DIR 一个思路。
+    """
+    env = os.environ.get("RD_CLAUDE_DIR")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    return os.path.join(os.path.expanduser("~"), ".claude", "projects")
+
+
+def _cc_ts(s):
+    """ISO 8601 -> 毫秒整数。认不出来就 0：宁可没时间，也不要编一个假时间。"""
+    if isinstance(s, (int, float)) and s:
+        return int(s * 1000) if s < 1e11 else int(s)
+    if not isinstance(s, str) or not s.strip():
+        return 0
+    t = s.strip()
+    if t.endswith("Z"):
+        t = t[:-1] + "+00:00"
+    # fromisoformat 只认 3 位或 6 位小数，遇到 1/5 位要补齐，否则整条时间作废
+    m = re.match(r"^(.*?\.)(\d+)(.*)$", t)
+    if m and len(m.group(2)) not in (3, 6):
+        t = m.group(1) + (m.group(2) + "000000")[:6] + m.group(3)
+    try:
+        d = datetime.datetime.fromisoformat(t)
+    except Exception:
+        return 0
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=datetime.timezone.utc)
+    try:
+        return int(d.timestamp() * 1000)
+    except Exception:
+        return 0
+
+
+def _cc_iter(path):
+    """逐行读 jsonl。坏行跳过，绝不让一行脏数据毁掉整个会话。"""
+    try:
+        fh = io.open(path, encoding="utf-8", errors="replace")
+    except Exception:
+        return
+    with fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line[0] != "{":
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(rec, dict):
+                yield rec
+
+
+def _cc_content(rec):
+    m = rec.get("message")
+    if isinstance(m, dict):
+        return m.get("content")
+    return rec.get("content")
+
+
+def _cc_blocks(rec):
+    c = _cc_content(rec)
+    return c if isinstance(c, list) else []
+
+
+def _cc_text(rec):
+    """这条记录里的纯文字。user 的 content 可能是字符串，也可能是块数组。"""
+    c = _cc_content(rec)
+    if isinstance(c, str):
+        return c
+    out = []
+    for b in (c or []):
+        if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str):
+            out.append(b["text"])
+    return "\n".join(out)
+
+
+def _cc_is_tool_result(rec):
+    """这条 user 记录装的是工具结果，不是人说的话。"""
+    if rec.get("isMeta"):
+        return True
+    blocks = _cc_blocks(rec)
+    if not blocks:
+        return False
+    return all(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks)
+
+
+def _short(s, n):
+    s = re.sub(r"\s+", " ", str(s or "")).strip()
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _cc_stat(path):
+    """一个会话文件的轻量统计。只数数和取标题，不建树 —— 索引层要跑得够快。"""
+    turns = steps = 0
+    t0 = t1 = 0
+    title = cwd = ""
+    for r in _cc_iter(path):
+        ty = r.get("type")
+        ts = _cc_ts(r.get("timestamp"))
+        if ts:
+            if not t0 or ts < t0:
+                t0 = ts
+            if ts > t1:
+                t1 = ts
+        if not cwd and isinstance(r.get("cwd"), str):
+            cwd = r["cwd"]
+        if ty == "assistant":
+            for b in _cc_blocks(r):
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    steps += 1
+        elif ty == "user" and not r.get("isCompactSummary") and not _cc_is_tool_result(r):
+            turns += 1
+            if not title:
+                txt = _cc_text(r).strip()
+                if txt:
+                    title = _short(txt, 40)
+    return {"turns": turns, "steps": steps, "t0": t0, "t1": t1,
+            "title": title, "cwd": cwd}
+
+
+def _cc_index_path():
+    return os.path.join(paths.USER, "claude_index.json")
+
+
+def _cc_load_index():
+    try:
+        with io.open(_cc_index_path(), encoding="utf-8") as fh:
+            d = json.load(fh)
+        if int(d.get("ver") or 0) == CC_INDEX_VER and isinstance(d.get("files"), dict):
+            return d["files"]
+    except Exception:
+        pass
+    return {}
+
+
+def _cc_save_index(files):
+    try:
+        if not os.path.isdir(paths.USER):
+            os.makedirs(paths.USER, exist_ok=True)
+        tmp = _cc_index_path() + ".tmp"
+        with io.open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"ver": CC_INDEX_VER, "files": files}, fh, ensure_ascii=False)
+        os.replace(tmp, _cc_index_path())
+    except Exception:
+        pass
+
+
+def _cc_scan(force=False):
+    """扫 ~/.claude/projects。返回 [(rel, abspath, 项目目录名, 统计)]。
+
+    缓存键是 rel + mtime + size，和 WorkBuddy 的 _index.json 一个思路：
+    会话只追加不改写，mtime/size 没变就等于那条记录没变，不用重读。
+    """
+    root = _cc_projects()
+    if not os.path.isdir(root):
+        return []
+    old = _cc_load_index()
+    new, rows, dirty = {}, [], False
+    try:
+        dirs = sorted(os.listdir(root))
+    except OSError:
+        return []
+    for d in dirs:
+        dd = os.path.join(root, d)
+        if not os.path.isdir(dd):
+            continue
+        try:
+            names = sorted(os.listdir(dd))
+        except OSError:
+            continue
+        for fn in names:
+            if not fn.lower().endswith(".jsonl"):
+                continue
+            fp = os.path.join(dd, fn)
+            try:
+                st = os.stat(fp)
+            except OSError:
+                continue
+            rel = d + "/" + fn
+            hit = old.get(rel)
+            if (hit and not force and hit.get("mtime") == st.st_mtime
+                    and hit.get("size") == st.st_size):
+                info = hit
+            else:
+                info = _cc_stat(fp)
+                info["mtime"] = st.st_mtime
+                info["size"] = st.st_size
+                dirty = True
+            new[rel] = info
+            rows.append((rel, fp, d, info))
+    if dirty or len(new) != len(old):
+        _cc_save_index(new)
+    return rows
+
+
+def _cc_project_name(enc, cwd=""):
+    """项目目录名 -> 可读名。
+
+    优先用会话里记的 cwd：那是权威原文，大小写和路径分隔符都还在。
+    目录名是「路径把所有非字母数字换成 -」的产物，**有损** —— 路径里本来就
+    有 - 的时候（other-thing），`-Users-demo-other-thing` 到底是
+    `other/thing` 还是 `other-thing`，从字符串上永远分不出来。
+    所以只在没有 cwd 时退回去，而且只取末段：宁可短，也不要把两段不相干的
+    拼起来误导人。实际上 Claude Code 每条记录都带 cwd，这条兜底很少走到。
+    """
+    if cwd:
+        s = cwd.replace("\\", "/").rstrip("/")
+        if s:
+            return s.split("/")[-1] or s
+    s = enc
+    if re.match(r"^[A-Za-z]--", s):
+        s = s[3:]
+    else:
+        s = s.lstrip("-")
+    parts = [p for p in s.split("-") if p]
+    return parts[-1] if parts else enc
+
+
+def _cc_build_tree(path, sid, offset=0, limit=0, tail=False):
+    """一个 jsonl -> 会话树（回合 -> 步骤）。
+
+    步骤节点**不在这里造**，而是拼成 live_server.step_node 认识的形状交给它 ——
+    中文名、工具族、ok 判定、hint 取哪个参数，口径只能有一份。
+    """
+    turns = []
+    pending = {}        # tool_use_id -> (回合下标, calls 内下标)
+    cur = -1
+
+    for r in _cc_iter(path):
+        ty = r.get("type")
+        ts = _cc_ts(r.get("timestamp"))
+        if ty == "user":
+            if _cc_is_tool_result(r):
+                for b in _cc_blocks(r):
+                    if not isinstance(b, dict) or b.get("type") != "tool_result":
+                        continue
+                    ref = pending.pop(b.get("tool_use_id"), None)
+                    if not ref:
+                        continue
+                    ti, ci = ref
+                    if not (0 <= ti < len(turns)) or ci >= len(turns[ti]["calls"]):
+                        continue
+                    call = turns[ti]["calls"][ci]
+                    gap = ts - (call.get("timestamp") or 0)
+                    if ts and gap >= 0:
+                        call["_dur"] = gap
+                    call["_ok"] = not bool(b.get("is_error"))
+                continue
+            if r.get("isCompactSummary"):
+                continue        # 压缩后自动生成的摘要，不是人说的话
+            turns.append({"ts": ts, "name": _short(_cc_text(r), 11) or "（空）", "calls": []})
+            cur = len(turns) - 1
+            continue
+        if ty != "assistant":
+            continue
+        for b in _cc_blocks(r):
+            if not isinstance(b, dict) or b.get("type") != "tool_use":
+                continue
+            if cur < 0:
+                # 第一条就是工具调用（续聊/拼接过的文件）：给它一个兜底回合，
+                # 否则这些调用会全部凭空消失
+                turns.append({"ts": ts, "name": "（开头）", "calls": []})
+                cur = 0
+            call = {
+                "name": b.get("name") or "?",
+                "arguments": b.get("input") or {},
+                "timestamp": ts,
+                "callId": b.get("id") or "",
+                "_ok": True,
+                "_dur": 0,
+            }
+            pending[call["callId"]] = (cur, len(turns[cur]["calls"]))
+            turns[cur]["calls"].append(call)
+
+    if not turns:
+        return {"name": "会话", "children": []}
+
+    ls = ClaudeCodeSource()._mod()
+    total = len(turns)
+    if limit and limit > 0:
+        if tail:
+            offset = max(0, total - limit)
+        sel = turns[offset:offset + limit]
+    else:
+        sel = turns
+
+    out = []
+    for t in sel:
+        seq = sorted(t["calls"], key=lambda c: c.get("timestamp") or 0)
+        ev = {"results": {}}
+        for c in seq:
+            cid = c.get("callId")
+            if cid:
+                ev["results"][cid] = {
+                    "timestamp": (c.get("timestamp") or 0) + int(c.get("_dur") or 0),
+                    "status": "completed" if c.get("_ok", True) else "error",
+                }
+        kids = [ls.step_node(c, ev, seq, i, t["name"]) for i, c in enumerate(seq)]
+        if not kids:
+            kids.append({"kind": "step", "name": "未执行", "value": 0, "w": WT.w_steps(),
+                         "tool": "-", "family": "misc", "ok": True,
+                         "hint": "这一轮没有产生工具调用", "at": t["ts"]})
+        out.append({
+            "kind": "turn",
+            "name": t["name"],
+            "children": kids,
+            "w": WT.w_count(len(kids)),
+            "at": t["ts"],
+            "sid": sid,
+        })
+
+    tree = {"name": "会话", "children": out}
+    if limit and limit > 0:
+        tree["_total"] = total
+        tree["_offset"] = offset
+        tree["_limit"] = limit
+    return tree
+
+
+class ClaudeCodeSource(Source):
+    key = "claude"
+    label = "Claude Code 会话"
+    hint = "读本机 ~/.claude/projects 下的 .jsonl 会话记录"
+    disk_label = "~/.claude/projects"
+
+    @staticmethod
+    def available():
+        return os.path.isdir(_cc_projects())
+
+    def _mod(self):
+        # 延迟 import：live_server 启动时要 import 本模块，顶层互相 import 会成环
+        import live_server
+        return live_server
+
+    def root(self):
+        groups = {}
+        for rel, fp, enc, info in _cc_scan():
+            groups.setdefault(enc, []).append((rel, fp, info))
+
+        kids = []
+        for enc, arr in groups.items():
+            cwd = ""
+            for _, _, info in arr:
+                if info.get("cwd"):
+                    cwd = info["cwd"]
+                    break
+            sess, steps_sum, turns_sum, files_sum = [], 0, 0, 0
+            for rel, fp, info in arr:
+                n_steps = int(info.get("steps") or 0)
+                n_turns = int(info.get("turns") or 0)
+                steps_sum += n_steps
+                turns_sum += n_turns
+                files_sum += int(info.get("files") or 0)
+                sess.append({
+                    "kind": "session",
+                    "sid": CLAUDE_SID_PREFIX + rel,
+                    "name": info.get("title") or rel.split("/")[-1][:8],
+                    "children": [],
+                    "lazy": True,
+                    "w": WT.w_count(n_steps),
+                    "steps": n_steps,
+                    "turns": n_turns,
+                    "files": int(info.get("files") or 0),
+                    "at": info.get("t1") or info.get("t0") or 0,
+                    "t0": info.get("t0") or 0,
+                    # 会话的直接下级是回合，这里报轮数不报步数（步在回合下面）
+                    "right": "%d 个回合" % n_turns,
+                    "disk": rel,
+                })
+            sess.sort(key=lambda x: -(x.get("at") or 0))
+            kids.append({
+                "kind": "workspace",
+                "name": _cc_project_name(enc, cwd),
+                "wid": enc,
+                "children": sess,
+                "w": WT.w_count(steps_sum),
+                "steps": steps_sum,
+                "sessions": len(sess),
+                "turns": turns_sum,
+                "at": max([s["at"] for s in sess] or [0]),
+                "t0": min([s["t0"] for s in sess if s.get("t0")] or [0]),
+                "right": "%d 个会话" % len(sess),
+                "disk": enc,
+            })
+        kids.sort(key=lambda x: -(x.get("at") or 0))
+        return {"kind": "root", "name": self.label, "children": kids,
+                "source": self.key}
+
+    def expand(self, node_id, offset=0, limit=0, tail=False):
+        rel = str(node_id or "")
+        if not rel.startswith(CLAUDE_SID_PREFIX):
+            return None
+        rel = rel[len(CLAUDE_SID_PREFIX):]
+        root = os.path.normpath(_cc_projects())
+        p = os.path.normpath(os.path.join(root, rel.replace("/", os.sep)))
+        # 只认 projects 底下的文件：这个 id 是从前端回来的，不能让它指到别处
+        if not (p == root or p.startswith(root + os.sep)) or not os.path.isfile(p):
+            return None
+        return _cc_build_tree(p, node_id, offset, limit, tail)
+
+    def summary(self, tree):
+        sessions = steps = 0
+        for ws in tree.get("children", []):
+            sessions += len(ws.get("children", []))
+            steps += ws.get("steps") or 0
+        return {"count": sessions, "countUnit": "会话",
+                "steps": steps, "stepUnit": "步",
+                "leaves": steps}
+
+
+def expand_node(sid, offset=0, limit=0, tail=False):
+    """给 /api/session 用的分派器。
+
+    claude: 前缀归 Claude Code，tree: 前缀归结构树的懒加载，
+    其余仍走 live_server.load_session（WorkBuddy 那条老路一行都不动 ——
+    它背后有索引、锁、分段等一串既有逻辑）。
+    """
+    s = str(sid or "")
+    if s.startswith(CLAUDE_SID_PREFIX):
+        return ClaudeCodeSource().expand(s, offset, limit, tail)
+    if s.startswith(TREE_LID_PREFIX):
+        rest = s[len(TREE_LID_PREFIX):]
+        key, _, path = rest.partition("/")
+        src = REGISTRY.get(key)
+        if isinstance(src, TreeSource):
+            return src.expand(path, offset, limit, tail)
+        return None
+    import live_server
+    return live_server.load_session(sid, offset, limit, tail)
+
+
+def claude_path_of(sid):
+    """claude 会话 id -> 磁盘上的 jsonl 绝对路径。查不到返回空串。"""
+    s = str(sid or "")
+    if not s.startswith(CLAUDE_SID_PREFIX):
+        return ""
+    root = os.path.normpath(_cc_projects())
+    p = os.path.normpath(os.path.join(root, s[len(CLAUDE_SID_PREFIX):].replace("/", os.sep)))
+    if (p == root or p.startswith(root + os.sep)) and os.path.isfile(p):
+        return p
+    return ""
+
+
+def source_available(key):
+    """这个源在本机有没有东西可读。判断不了就说「有」——
+    宁可露出一棵空树，也不要让一颗珠子凭空消失。"""
+    src = REGISTRY.get(key)
+    if src is None:
+        return False
+    fn = getattr(src, "available", None)
+    if fn is None:
+        return True
+    try:
+        return bool(fn())
+    except Exception:
+        return True
+
+
+# ==================================================================
 #  注册表
 # ==================================================================
 
@@ -445,12 +1105,32 @@ IMPORT_DIR = paths.IMPORT_DIR
 ARCHIVE_DIR = os.path.join(IMPORT_DIR, "_归档")
 
 
+def _slug_of(base, prefix):
+    """文件名 -> 数据源 key。**这个函数必须幂等**。
+
+    导入时落盘的文件名就是按这个 key 起的（`tree-abc12345.tree.json`）。
+    下次扫 sources/ 再算一遍时如果又套一层前缀，同一个文件会被注册成两个
+    key：界面上出现两行同名库；删掉其中一行（文件被移走），另一行立刻
+    变成指着空文件的死链 —— 用户看到的就是「删一个另一个也消失」。
+    2026-11-12 修的就是这个。
+
+    key 必须是纯 ASCII：它要进 URL。中文名硬塞进去会被百分号编码，
+    前端解析参数时极易截断。显示名另有 label，不受影响。
+    """
+    if base.lower().endswith(".tree.json"):
+        stem = base[:-len(".tree.json")]
+    else:
+        stem = os.path.splitext(base)[0]
+    part = re.sub(r"[^\w\-]+", "-", stem, flags=re.ASCII).strip("-").lower()
+    if part.startswith(prefix):
+        return part
+    return prefix + (part or hashlib.md5(base.encode("utf-8")).hexdigest()[:8])
+
+
 def register_tree_file(path, label=None, key=None):
     """把一份结构树注册成数据源。同名重复导入覆盖同一个 key。"""
     base = os.path.basename(path)
-    stem = base[:-len(".tree.json")] if base.lower().endswith(".tree.json") else base
-    ascii_part = re.sub(r"[^\w\-]+", "-", stem, flags=re.ASCII).strip("-").lower()
-    slug = key or ("tree-" + (ascii_part or hashlib.md5(base.encode("utf-8")).hexdigest()[:8]))
+    slug = key or _slug_of(base, "tree-")
     # 显示名优先用用户选的那个文件夹名（存在树文件的 name 里），
     # 退而求其次才是 sources/ 下的文件名 slug —— slug 是给 URL 用的，
     # 挂在珠子和两栏里读起来像乱码。
@@ -460,7 +1140,7 @@ def register_tree_file(path, label=None, key=None):
                 label = (json.load(fh).get("name") or "").strip()
         except Exception:
             label = ""
-    src = TreeSource(path, key=slug, label=label or stem)
+    src = TreeSource(path, key=slug, label=label or slug)
     REGISTRY[slug] = src
     return src
 
@@ -469,12 +1149,7 @@ def register_csv_file(path, label=None, key=None):
     """把用户导入的 CSV 注册成一个独立数据源。
     同名文件重复导入 → 覆盖同一个 key，不会堆出一串重复项。"""
     base = os.path.basename(path)
-    stem = os.path.splitext(base)[0]
-    # slug 必须是纯 ASCII：它要进 URL。中文名硬塞进去会被百分号编码，
-    # 前端解析参数时极易截断（踩过：source=import-%E9... 被读成 import）。
-    # 保留能用的英文数字，其余退化成稳定哈希 —— 显示名另有 label，不受影响。
-    ascii_part = re.sub(r"[^\w\-]+", "-", stem, flags=re.ASCII).strip("-").lower()
-    slug = key or ("import-" + (ascii_part or hashlib.md5(base.encode("utf-8")).hexdigest()[:8]))
+    slug = key or _slug_of(base, "import-")
     src = CsvSource(path, key=slug, label=label or base)
     REGISTRY[slug] = src
     return src
@@ -514,16 +1189,9 @@ def load_imported(rescan=False):
         if rescan:
             # 已登记过的跳过：同一个文件反复重新注册会不断造新实例，
             # 界面上看不出差别，但每 1.5 秒一轮的轮询会白白产生对象和 IO。
-            # 前缀必须和 register_csv_file / register_tree_file 里的算法一致，
-            # 否则算出来的 key 永远不在表里，等于没跳过、每轮都重新注册。
-            if low.endswith(".tree.json"):
-                stem = fn[:-len(".tree.json")]
-                prefix = "tree-"
-            else:
-                stem = os.path.splitext(fn)[0]
-                prefix = "import-"
-            ascii_part = re.sub(r"[^\w\-]+", "-", stem, flags=re.ASCII).strip("-").lower()
-            slug = prefix + (ascii_part or hashlib.md5(fn.encode("utf-8")).hexdigest()[:8])
+            # **必须走 _slug_of**，不能在这儿再抄一遍算法 —— 抄的那份
+            # 忘了「文件名已经带前缀」这件事，同一个文件会被注册成两个 key。
+            slug = _slug_of(fn, "tree-" if low.endswith(".tree.json") else "import-")
             if slug in REGISTRY:
                 continue
         try:
@@ -536,22 +1204,34 @@ def load_imported(rescan=False):
 
 
 REGISTRY = {}
-for _cls in (WorkBuddySource, CsvSource):
+for _cls in (WorkBuddySource, ClaudeCodeSource, CsvSource):
     _inst = _cls()
     REGISTRY[_inst.key] = _inst
 
 load_imported()
 
 
+def _fallback():
+    """没指定源、或指定的源在本机没数据时，退到哪个。
+
+    顺序就是「谁更可能真有数据」：WorkBuddy（本机装了才有）→ Claude Code
+    （装了才有）→ 示例 CSV（谁都有，充数用）。
+    """
+    for k in ("workbuddy", "claude"):
+        if REGISTRY.get(k) is not None and source_available(k):
+            return REGISTRY[k]
+    return REGISTRY["csv"]
+
+
 def get_source(key):
-    """取数据源。workbuddy 在没装 WorkBuddy 的机器上是空的，
-    这种情况退到 CSV，而不是把一棵空树甩给前端 —— 否则对方打开就是白屏。"""
+    """取数据源。会话类数据源在本机没东西时，退到下一个 ——
+    否则对方的机器上打开就是白屏，还以为是程序坏了。"""
     src = REGISTRY.get(key)
     if src is not None:
-        if src.key == "workbuddy" and not WorkBuddySource.available():
-            return REGISTRY["csv"]
+        if src.key in ("workbuddy", "claude") and not source_available(src.key):
+            return _fallback()
         return src
-    return REGISTRY["workbuddy"]
+    return _fallback()
 
 
 def remove_source(key):
@@ -595,8 +1275,7 @@ def list_sources():
     # 每次取清单顺手补扫一遍 sources/，这样「丢文件进去 → 刷新页面」真的生效
     load_imported(rescan=True)
     real = [s for s in REGISTRY.values() if not s.is_example]
-    usable = [s for s in real
-              if s.key != "workbuddy" or WorkBuddySource.available()]
+    usable = [s for s in real if source_available(s.key)]
     if usable:
         return [s.describe() for s in real]
     return [s.describe() for s in REGISTRY.values() if s.is_example]
